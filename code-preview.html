@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HalalIQ Edge Function Code</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      background: #f7f3ea;
+    }
+    pre {
+      margin: 0;
+      padding: 24px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #fffdf7;
+      border: 1px solid #d8cfc0;
+      border-radius: 14px;
+      color: #1f2937;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+  </style>
+</head>
+<body>
+  <pre id="code">Loading code...</pre>
+  <script>
+    const codeElement = document.getElementById("code");
+    fetch("./supabase/functions/halal-compliance-validator/index.ts", { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to load file: ${response.status}`);
+        }
+        return response.text();
+      })
+      .then((text) => {
+        codeElement.textContent = text;
+      })
+      .catch((error) => {
+        codeElement.textContent = `Unable to load the file preview.\n\n${String(error)}`;
+      });
+  </script>
+</body>
+</html>
