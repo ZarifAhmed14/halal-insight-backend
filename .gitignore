@@ -7,3 +7,10 @@ server.err.log
 Thumbs.db
 node_modules/
 .supabase/
+dist/
+dist-ssr/
+.output/
+.wrangler/
+.dev.vars
+*.local
+backend/supabase/functions/get-history/
