@@ -43,8 +43,16 @@ export const Route = createFileRoute("/")({
 type IngredientStatus = "halal" | "verify" | "haram";
 const SAMPLE_INGREDIENTS: { name: string; status: IngredientStatus; note: string }[] = [
   { name: "Soybean Oil", status: "halal", note: "Plant-based - clear for food review." },
-  { name: "E471 Emulsifier", status: "verify", note: "Source unclear - supplier certificate needed." },
-  { name: "Collagen", status: "haram", note: "Animal-origin evidence required before cosmetics review." },
+  {
+    name: "E471 Emulsifier",
+    status: "verify",
+    note: "Source unclear - supplier certificate needed.",
+  },
+  {
+    name: "Collagen",
+    status: "haram",
+    note: "Animal-origin evidence required before cosmetics review.",
+  },
 ];
 
 function LandingPage() {
@@ -85,9 +93,7 @@ function LDCBanner() {
         </span>
         <span className="text-foreground/85">
           <span className="font-medium text-jade-glow">LDC Graduation Mode: Active.</span>{" "}
-          <span className="text-muted-foreground">
-            Optimizing for High-Value Global Exports.
-          </span>
+          <span className="text-muted-foreground">Optimizing for High-Value Global Exports.</span>
         </span>
       </div>
     </div>
@@ -102,7 +108,7 @@ function Hero() {
         aria-hidden
         className="font-arabic pointer-events-none absolute right-4 top-12 select-none text-[120px] leading-none text-jade/[0.06] sm:right-10 sm:top-16 sm:text-[180px] md:text-[240px]"
       >
-        حلال
+        HALAL
       </div>
 
       <div className="relative grid items-center gap-10 md:grid-cols-2 md:gap-[60px]">
@@ -155,9 +161,9 @@ function Hero() {
 
           <div className="mt-6 flex flex-wrap items-center gap-2">
             {[
-              { flag: "🇲🇾", label: "JAKIM" },
-              { flag: "🇦🇪", label: "ESMA" },
-              { flag: "🇬🇧", label: "HFA" },
+              { flag: "MY", label: "JAKIM" },
+              { flag: "AE", label: "ESMA" },
+              { flag: "UK", label: "HFA" },
             ].map((b) => (
               <span
                 key={b.label}
@@ -203,19 +209,20 @@ function Hero() {
                 label="VERIFY"
                 note="Source documentation required"
               />
-              <PreviewRow
-                name="Gelatin"
-                status="haram"
-                label="HARAM"
-                note="Must be removed"
-              />
+              <PreviewRow name="Gelatin" status="haram" label="HARAM" note="Must be removed" />
             </div>
 
             <div className="my-5 h-px w-full bg-hairline" />
 
             <div className="space-y-3">
-              <MarketRow flag="🇲🇾" name="Malaysia JAKIM" pct={42} tone="amber" status="Nearly Ready" />
-              <MarketRow flag="🇬🇧" name="UK HFA" pct={31} tone="red" status="Gaps Found" />
+              <MarketRow
+                flag="MY"
+                name="Malaysia JAKIM"
+                pct={42}
+                tone="amber"
+                status="Nearly Ready"
+              />
+              <MarketRow flag="UK" name="UK HFA" pct={31} tone="red" status="Gaps Found" />
             </div>
           </div>
         </motion.div>
@@ -269,10 +276,8 @@ function MarketRow({
   tone: "amber" | "red";
   status: string;
 }) {
-  const barColor =
-    tone === "amber" ? "bg-verdict-mushbooh" : "bg-verdict-haram";
-  const textColor =
-    tone === "amber" ? "text-verdict-mushbooh" : "text-verdict-haram";
+  const barColor = tone === "amber" ? "bg-verdict-mushbooh" : "bg-verdict-haram";
+  const textColor = tone === "amber" ? "text-verdict-mushbooh" : "text-verdict-haram";
   return (
     <div>
       <div className="flex items-center justify-between text-xs">
@@ -296,10 +301,7 @@ function PlatformDemo() {
   const readyPct = Math.round((readyCount / total) * 100);
 
   return (
-    <Section
-      eyebrow="How it works"
-      title="Find out what to fix before certification."
-    >
+    <Section eyebrow="How it works" title="Find out what to fix before certification.">
       <div className="mx-auto grid max-w-5xl gap-6 md:grid-cols-2 md:gap-8">
         {/* LEFT - Step 1: Enter product */}
         <motion.div
@@ -309,12 +311,8 @@ function PlatformDemo() {
           transition={{ duration: 0.6 }}
           className="glass rounded-3xl p-7 shadow-elegant"
         >
-          <div className="text-xs font-medium uppercase tracking-widest text-jade-glow">
-            Step 1
-          </div>
-          <h3 className="font-display mt-2 text-2xl text-foreground">
-            Enter your product
-          </h3>
+          <div className="text-xs font-medium uppercase tracking-widest text-jade-glow">Step 1</div>
+          <h3 className="font-display mt-2 text-2xl text-foreground">Enter your product</h3>
           <p className="mt-1.5 text-sm text-muted-foreground">
             Paste a barcode or product name. We'll do the rest.
           </p>
@@ -343,11 +341,9 @@ function PlatformDemo() {
           className="glass rounded-3xl p-7 shadow-elegant"
         >
           <div className="text-xs font-medium uppercase tracking-widest text-jade-glow">
-            Step 2 → 3
+            Step 2 to 3
           </div>
-          <h3 className="font-display mt-2 text-2xl text-foreground">
-            See what needs fixing
-          </h3>
+          <h3 className="font-display mt-2 text-2xl text-foreground">See what needs fixing</h3>
           <p className="mt-1.5 text-sm text-muted-foreground">
             Each ingredient gets a clear status, so you know exactly what to do next.
           </p>
@@ -417,11 +413,7 @@ function IngredientRow({
       className="flex items-center gap-3 rounded-xl border border-hairline bg-background/40 px-3.5 py-3"
       style={{ borderLeft: `3px solid ${cfg.color}` }}
     >
-      <cfg.Icon
-        className="h-3.5 w-3.5 shrink-0"
-        strokeWidth={2.5}
-        style={{ color: cfg.color }}
-      />
+      <cfg.Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} style={{ color: cfg.color }} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
           <div className="truncate text-sm font-medium text-foreground">{name}</div>
@@ -437,7 +429,6 @@ function IngredientRow({
     </div>
   );
 }
-
 
 /* ============================================================ HOW IT WORKS */
 function HowItWorks() {
@@ -557,12 +548,35 @@ function ProductShowcase() {
           </div>
           <div className="mt-6 space-y-3">
             {[
-              { school: "Ingredient source", pos: "Supplier declaration needed", lean: 42, color: "verdict-mushbooh" },
-              { school: "Animal-origin proof", pos: "Required for gelatin/collagen", lean: 28, color: "verdict-haram" },
-              { school: "Market checklist", pos: "JAKIM or export authority review", lean: 64, color: "verdict-mushbooh" },
-              { school: "Final report", pos: "Saved to Supabase history", lean: 86, color: "verdict-halal" },
+              {
+                school: "Ingredient source",
+                pos: "Supplier declaration needed",
+                lean: 42,
+                color: "verdict-mushbooh",
+              },
+              {
+                school: "Animal-origin proof",
+                pos: "Required for gelatin/collagen",
+                lean: 28,
+                color: "verdict-haram",
+              },
+              {
+                school: "Market checklist",
+                pos: "JAKIM or export authority review",
+                lean: 64,
+                color: "verdict-mushbooh",
+              },
+              {
+                school: "Final report",
+                pos: "Saved to Supabase history",
+                lean: 86,
+                color: "verdict-halal",
+              },
             ].map((s) => (
-              <div key={s.school} className="rounded-xl border border-hairline bg-background/30 p-3.5">
+              <div
+                key={s.school}
+                className="rounded-xl border border-hairline bg-background/30 p-3.5"
+              >
                 <div className="flex items-center justify-between text-sm">
                   <span className="font-medium text-foreground">{s.school}</span>
                   <span className="text-xs text-muted-foreground">{s.pos}</span>
@@ -602,7 +616,8 @@ function ProductShowcase() {
               ))}
             </div>
             <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-              Confidence reflects extraction quality, graph coverage, and whether evidence is still missing.
+              Confidence reflects extraction quality, graph coverage, and whether evidence is still
+              missing.
             </p>
           </div>
 
@@ -641,12 +656,11 @@ function FinalCTA() {
             Built for the next billion decisions
           </div>
           <h2 className="font-display mt-6 text-balance text-4xl font-light leading-[1.05] sm:text-5xl md:text-6xl">
-            Make every choice with{" "}
-            <span className="italic text-gradient-jade">conviction.</span>
+            Make every choice with <span className="italic text-gradient-jade">conviction.</span>
           </h2>
           <p className="mx-auto mt-5 max-w-lg text-pretty text-muted-foreground">
-            HalalIQ helps manufacturers turn ingredient lists, label photos, and market rules into
-            a clear pre-certification readiness report.
+            HalalIQ helps manufacturers turn ingredient lists, label photos, and market rules into a
+            clear pre-certification readiness report.
           </p>
           <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
             <Link

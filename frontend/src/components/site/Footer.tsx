@@ -9,11 +9,12 @@ export function Footer() {
           <div>
             <Logo />
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-muted-foreground">
-              A halal-aware intelligence layer for the modern world. Grounded in evidence, transparent by design.
+              A halal-aware intelligence layer for the modern world. Grounded in evidence,
+              transparent by design.
             </p>
             <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-hairline bg-surface px-3 py-1.5 text-xs text-muted-foreground">
               <span className="h-1.5 w-1.5 rounded-full bg-jade animate-pulse" />
-              All systems verified · v1.0
+              All systems verified - v1.0
             </div>
           </div>
           {[
@@ -59,8 +60,8 @@ export function Footer() {
           ))}
         </div>
         <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-hairline pt-8 text-xs text-muted-foreground sm:mt-16 md:flex-row md:items-center">
-          <div>© {new Date().getFullYear()} Halal Intelligence Platform. Built with adab.</div>
-          <div className="font-display italic">"And say: My Lord, increase me in knowledge." — 20:114</div>
+          <div>Copyright {new Date().getFullYear()} HalalIQ. Built with adab.</div>
+          <div className="font-display italic">"My Lord, increase me in knowledge." - 20:114</div>
         </div>
       </div>
     </footer>

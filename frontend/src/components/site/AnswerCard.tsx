@@ -18,7 +18,7 @@ export function AnswerCard() {
             Q
           </div>
           <p className="text-[15px] leading-relaxed text-foreground/90">
-            Is investing in a tech ETF that includes a small percentage of conventional banks halal?
+            Is this chocolate wafer ready for Malaysia halal certification review?
           </p>
         </div>
 
@@ -26,19 +26,19 @@ export function AnswerCard() {
 
         {/* Verdict header */}
         <div className="flex flex-wrap items-center gap-3">
-          <VerdictBadge verdict="ikhtilaf" size="lg" />
+          <VerdictBadge verdict="mushbooh" size="lg" />
           <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
             <Sparkles className="h-3 w-3 text-jade" />
-            Confidence 86% · 4 sources
+            Confidence 86% - 4 evidence checks
           </div>
         </div>
 
         {/* Answer */}
         <p className="mt-5 text-[15px] leading-relaxed text-foreground/85 text-pretty">
-          The majority of contemporary scholars permit ETFs with{" "}
-          <span className="text-foreground">incidental impermissible income below 5%</span>, provided
-          the investor purifies that portion. AAOIFI applies stricter screens. The safer path is a
-          Shariah-compliant ETF.
+          The product needs review because{" "}
+          <span className="text-foreground">E471 and gelatin require source evidence</span>. The
+          safer path is to collect supplier declarations and replace any animal-derived ingredient
+          that cannot be certified.
         </p>
 
         {/* Reasoning chain */}
@@ -48,10 +48,10 @@ export function AnswerCard() {
           </div>
           <ol className="mt-3 space-y-2.5 text-sm">
             {[
-              "Identify the underlying business activities",
-              "Apply tolerance threshold (AAOIFI / Mufti Taqi Usmani)",
-              "Calculate purification ratio for impermissible income",
-              "Compare with stricter and lenient positions",
+              "Normalize the ingredient list",
+              "Match ingredients against the Neo4j compliance graph",
+              "Group findings into blockers, warnings, and low-risk items",
+              "Return document requirements for reviewer follow-up",
             ].map((step, i) => (
               <li key={i} className="flex items-start gap-3 text-foreground/75">
                 <span className="mt-2 h-1 w-1 rounded-full bg-jade" />
@@ -64,8 +64,8 @@ export function AnswerCard() {
         {/* Sources */}
         <div className="mt-5 grid gap-2 sm:grid-cols-2">
           {[
-            { label: "AAOIFI Standard 21", tag: "Standard" },
-            { label: "Usmani — Intro to Islamic Finance", tag: "Treatise" },
+            { label: "Supplier halal certificate", tag: "Evidence" },
+            { label: "Animal-origin statement", tag: "Document" },
           ].map((s) => (
             <button
               key={s.label}

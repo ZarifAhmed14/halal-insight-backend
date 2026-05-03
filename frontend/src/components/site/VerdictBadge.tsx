@@ -31,7 +31,7 @@ const config: Record<
     icon: AlertTriangle,
   },
   ikhtilaf: {
-    label: "Ikhtilāf",
+    label: "Ikhtilaf",
     sub: "Scholars differ",
     color: "text-verdict-ikhtilaf",
     bg: "bg-verdict-ikhtilaf/10",
@@ -40,7 +40,13 @@ const config: Record<
   },
 };
 
-export function VerdictBadge({ verdict, size = "md" }: { verdict: Verdict; size?: "sm" | "md" | "lg" }) {
+export function VerdictBadge({
+  verdict,
+  size = "md",
+}: {
+  verdict: Verdict;
+  size?: "sm" | "md" | "lg";
+}) {
   const c = config[verdict];
   const Icon = c.icon;
   const sizing =
@@ -50,10 +56,12 @@ export function VerdictBadge({ verdict, size = "md" }: { verdict: Verdict; size?
         ? "px-2.5 py-1 text-xs gap-1.5"
         : "px-3 py-1.5 text-xs gap-2";
   return (
-    <div className={`inline-flex items-center rounded-full border ${c.border} ${c.bg} ${c.color} ${sizing} font-medium`}>
+    <div
+      className={`inline-flex items-center rounded-full border ${c.border} ${c.bg} ${c.color} ${sizing} font-medium`}
+    >
       <Icon className={size === "lg" ? "h-4 w-4" : "h-3 w-3"} strokeWidth={2.5} />
       <span>{c.label}</span>
-      {size === "lg" && <span className="text-foreground/40">·</span>}
+      {size === "lg" && <span className="text-foreground/40">-</span>}
       {size === "lg" && <span className="text-muted-foreground font-normal">{c.sub}</span>}
     </div>
   );

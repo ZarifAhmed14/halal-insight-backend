@@ -1,26 +1,54 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ArrowRight, Code, Lock, Layers, Building2 } from "lucide-react";
+import { ArrowRight, Building2, Code, Layers, Lock } from "lucide-react";
 import { Nav } from "@/components/site/Nav";
 import { Footer } from "@/components/site/Footer";
 
 export const Route = createFileRoute("/enterprise")({
   head: () => ({
     meta: [
-      { title: "Enterprise — Halal Intelligence Platform" },
+      { title: "Enterprise - HalalIQ Platform" },
       {
         name: "description",
         content:
-          "Embed halal-aware intelligence into banking, fintech, e-commerce, healthcare, and compliance workflows.",
+          "Embed HalalIQ product readiness checks into manufacturing, QA, certification, and export compliance workflows.",
       },
-      { property: "og:title", content: "Enterprise — Halal Intelligence" },
+      { property: "og:title", content: "Enterprise - HalalIQ" },
       {
         property: "og:description",
-        content: "A halal-aware intelligence layer for institutional products and workflows.",
+        content:
+          "A graph-backed halal pre-certification readiness layer for manufacturers and compliance teams.",
       },
     ],
   }),
   component: EnterprisePage,
 });
+
+const ENTERPRISE_FEATURES = [
+  {
+    icon: Code,
+    title: "Readiness API",
+    description:
+      "Run product scans from internal QA tools, supplier portals, or export workflows using the same analyze-food backend.",
+  },
+  {
+    icon: Lock,
+    title: "Private data flow",
+    description:
+      "Keep product formulas, supplier evidence, and scan history inside your Supabase project and controlled environment.",
+  },
+  {
+    icon: Layers,
+    title: "Domain-aware graph",
+    description:
+      "Extend Neo4j with food, cosmetics, pharmaceuticals, and export compliance rules without rewriting the frontend.",
+  },
+  {
+    icon: Building2,
+    title: "Audit history",
+    description:
+      "Store product submissions and generated reports so reviewers can see what changed between scans.",
+  },
+];
 
 function EnterprisePage() {
   return (
@@ -33,12 +61,13 @@ function EnterprisePage() {
       <main className="relative mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
         <div className="text-xs uppercase tracking-widest text-jade">Enterprise</div>
         <h1 className="font-display mt-4 max-w-3xl text-balance text-4xl font-light leading-[1.05] sm:text-5xl md:text-6xl">
-          A halal-aware intelligence layer for{" "}
-          <span className="italic text-gradient-jade">your institution.</span>
+          A halal readiness layer for{" "}
+          <span className="italic text-gradient-jade">manufacturing teams.</span>
         </h1>
         <p className="mt-6 max-w-2xl text-pretty text-muted-foreground">
-          Integrate scholarly-grade reasoning into screening, support, certification, and product
-          flows — on your infrastructure, with full audit logs.
+          HalalIQ helps product, QA, and export teams identify blockers before formal certification
+          review. It turns ingredients, markets, domains, and evidence requirements into a
+          structured readiness report.
         </p>
 
         <div className="mt-10 flex flex-wrap gap-3">
@@ -50,31 +79,30 @@ function EnterprisePage() {
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </a>
           <a
-            href="#"
+            href="/assistant"
             className="inline-flex items-center gap-2 rounded-full border border-hairline bg-surface/60 px-5 py-3 text-sm backdrop-blur transition-colors hover:bg-surface"
           >
-            Read the API docs
+            Open the assistant
           </a>
         </div>
 
-        <div className="mt-16 grid gap-4 sm:gap-6 md:grid-cols-2 sm:mt-20">
-          {[
-            { icon: Code, t: "Drop-in API", d: "REST + streaming. Returns verdict, confidence, sources, and reasoning trace." },
-            { icon: Lock, t: "On-prem deployment", d: "Run the full stack inside your VPC or on a managed Islamic-banking environment." },
-            { icon: Layers, t: "BYO knowledge", d: "Augment our corpus with your internal fatāwā or compliance manuals." },
-            { icon: Building2, t: "Audit & governance", d: "Every query logged with reasoning trace for regulator review." },
-          ].map((f) => (
-            <div key={f.t} className="rounded-2xl border border-hairline bg-surface p-5 sm:rounded-3xl sm:p-7">
+        <div className="mt-16 grid gap-4 sm:mt-20 sm:gap-6 md:grid-cols-2">
+          {ENTERPRISE_FEATURES.map((feature) => (
+            <div
+              key={feature.title}
+              className="rounded-2xl border border-hairline bg-surface p-5 sm:rounded-3xl sm:p-7"
+            >
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-jade/10 text-jade">
-                <f.icon className="h-5 w-5" strokeWidth={1.5} />
+                <feature.icon className="h-5 w-5" strokeWidth={1.5} />
               </div>
-              <h3 className="mt-5 font-display text-xl">{f.t}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.d}</p>
+              <h3 className="mt-5 font-display text-xl">{feature.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                {feature.description}
+              </p>
             </div>
           ))}
         </div>
 
-        {/* Code sample */}
         <div className="mt-16 overflow-hidden rounded-2xl border border-hairline bg-ink shadow-elegant sm:mt-20 sm:rounded-3xl">
           <div className="flex items-center justify-between border-b border-hairline px-5 py-3">
             <div className="flex gap-1.5">
@@ -83,38 +111,52 @@ function EnterprisePage() {
               <div className="h-2.5 w-2.5 rounded-full bg-foreground/15" />
             </div>
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              POST /v1/verdict
+              POST /functions/v1/analyze-food
             </div>
           </div>
           <pre className="overflow-x-auto p-6 text-[13px] leading-relaxed text-foreground/85">
-{`{
-  "query": "Is staking ETH halal?",
-  "context": { "domain": "finance", "jurisdiction": "global" },
-  "options": { "include_opinions": true, "safer_path": true }
+            {`{
+  "product_name": "Chocolate Wafer Biscuit",
+  "ingredients": ["E471", "Gelatin", "Vanilla Flavor"],
+  "market": "Malaysia",
+  "domain": "food"
 }
 
-→ {
-  "verdict": "ikhtilaf",
-  "confidence": 0.74,
-  "summary": "Contemporary scholars differ on staking rewards…",
-  "opinions": [ … 3 schools … ],
-  "sources": [ … 5 citations … ],
-  "reasoning_trace": [ … 6 steps … ],
-  "safer_path": "Use non-staking custody until consensus matures."
+-> {
+  "product_name": "Chocolate Wafer Biscuit",
+  "overall_status": "Not Ready",
+  "summary": {
+    "total_ingredients": 3,
+    "blockers_count": 2,
+    "warnings_count": 0
+  },
+  "blockers": [
+    {
+      "ingredient": "Gelatin",
+      "risk": "Critical",
+      "required_documents": ["Halal certificate", "Animal-origin statement"]
+    }
+  ]
 }`}
           </pre>
         </div>
 
-        <div id="contact" className="mt-16 rounded-2xl border border-hairline bg-surface p-8 text-center sm:mt-20 sm:rounded-3xl sm:p-10">
-          <h2 className="font-display text-2xl sm:text-3xl">Let's build something trustworthy.</h2>
+        <div
+          id="contact"
+          className="mt-16 rounded-2xl border border-hairline bg-surface p-8 text-center sm:mt-20 sm:rounded-3xl sm:p-10"
+        >
+          <h2 className="font-display text-2xl sm:text-3xl">
+            Build a cleaner certification workflow.
+          </h2>
           <p className="mt-3 text-muted-foreground">
-            We work with banks, fintechs, marketplaces, and certifiers worldwide.
+            Start with the MVP assistant, then extend the graph with your supplier evidence and
+            market-specific rules.
           </p>
           <a
-            href="mailto:partners@halal-intelligence.com"
+            href="mailto:partners@halaliq.app"
             className="mt-6 inline-flex items-center gap-2 rounded-full bg-foreground px-5 py-3 text-sm font-medium text-background"
           >
-            partners@halal-intelligence.com
+            partners@halaliq.app
           </a>
         </div>
       </main>
