@@ -23,17 +23,17 @@ import { Link } from "@tanstack/react-router";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Halal Export Readiness Platform — AI Pre-Certification for Manufacturers" },
+      { title: "HalalIQ - AI Pre-Certification for Manufacturers" },
       {
         name: "description",
         content:
-          "AI-powered halal pre-certification readiness for food exporters. Know which ingredients to fix before applying for JAKIM, ESMA, HFA, or EU certification.",
+          "AI-powered halal pre-certification readiness for food, cosmetics, pharmaceuticals, and export compliance workflows.",
       },
-      { property: "og:title", content: "Halal Export Readiness Platform" },
+      { property: "og:title", content: "HalalIQ Product Readiness Platform" },
       {
         property: "og:description",
         content:
-          "AI-powered halal pre-certification readiness for Bangladeshi manufacturers entering global markets.",
+          "AI-powered halal pre-certification readiness for manufacturers entering global halal markets.",
       },
     ],
   }),
@@ -42,9 +42,9 @@ export const Route = createFileRoute("/")({
 
 type IngredientStatus = "halal" | "verify" | "haram";
 const SAMPLE_INGREDIENTS: { name: string; status: IngredientStatus; note: string }[] = [
-  { name: "Soybean Oil", status: "halal", note: "Plant-based — clear for export." },
-  { name: "E471 Emulsifier", status: "verify", note: "Source unclear — supplier certificate needed." },
-  { name: "Bovine Glycerin", status: "haram", note: "Origin not from a certified abattoir." },
+  { name: "Soybean Oil", status: "halal", note: "Plant-based - clear for food review." },
+  { name: "E471 Emulsifier", status: "verify", note: "Source unclear - supplier certificate needed." },
+  { name: "Collagen", status: "haram", note: "Animal-origin evidence required before cosmetics review." },
 ];
 
 function LandingPage() {
@@ -118,7 +118,7 @@ function Hero() {
               <span className="absolute inline-flex h-full w-full rounded-full bg-jade animate-pulse-ring" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-jade" />
             </span>
-            For halal food exporters · Private beta
+            For halal manufacturers - MVP ready
           </div>
 
           <h1 className="font-display mt-6 text-balance text-[2.6rem] font-light leading-[1.02] text-foreground sm:text-5xl md:text-6xl">
@@ -170,7 +170,7 @@ function Hero() {
           </div>
         </motion.div>
 
-        {/* RIGHT COLUMN — Live Analysis Preview */}
+        {/* RIGHT COLUMN - Live Analysis Preview */}
         <motion.div
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
@@ -198,13 +198,13 @@ function Hero() {
             <div className="mt-5 space-y-3">
               <PreviewRow name="Soybean Oil" status="halal" label="HALAL" />
               <PreviewRow
-                name="E471 — Mono/Di-glycerides"
+                name="E471 - Mono/Di-glycerides"
                 status="verify"
                 label="VERIFY"
                 note="Source documentation required"
               />
               <PreviewRow
-                name="Pork Gelatin"
+                name="Gelatin"
                 status="haram"
                 label="HARAM"
                 note="Must be removed"
@@ -301,7 +301,7 @@ function PlatformDemo() {
       title="Find out what to fix before certification."
     >
       <div className="mx-auto grid max-w-5xl gap-6 md:grid-cols-2 md:gap-8">
-        {/* LEFT — Step 1: Enter product */}
+        {/* LEFT - Step 1: Enter product */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -324,7 +324,7 @@ function PlatformDemo() {
               Product
             </div>
             <div className="mt-1.5 font-display text-lg text-foreground">
-              Beef Sausage — 250g
+              Chocolate Wafer Biscuit - Malaysia
             </div>
           </div>
 
@@ -334,7 +334,7 @@ function PlatformDemo() {
           </button>
         </motion.div>
 
-        {/* RIGHT — Step 2 + 3: Analysis & what to fix */}
+        {/* RIGHT - Step 2 + 3: Analysis and what to fix */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -349,7 +349,7 @@ function PlatformDemo() {
             See what needs fixing
           </h3>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            Each ingredient gets a clear status — so you know exactly what to do next.
+            Each ingredient gets a clear status, so you know exactly what to do next.
           </p>
 
           {/* Simple progress bar */}
@@ -480,26 +480,26 @@ function DomainsSection() {
     {
       icon: Apple,
       t: "Food & Beverages",
-      d: "E-numbers · Additives · Processing aids · Flavorings",
+      d: "E-numbers - Additives - Processing aids - Flavorings",
       verdict: "mushbooh" as const,
     },
     {
       icon: Heart,
       t: "Cosmetics & Personal Care",
-      d: "Ingredients · Animal derivatives · Alcohol content · Carrier agents",
+      d: "Ingredients - Animal derivatives - Alcohol content - Carrier agents",
       verdict: "mushbooh" as const,
       customBadge: "verify",
     },
     {
       icon: Pill,
       t: "Pharmaceuticals",
-      d: "Excipients · Capsule shells · Gelatin sources · Coating agents",
+      d: "Excipients - Capsule shells - Gelatin sources - Coating agents",
       verdict: "mushbooh" as const,
     },
     {
       icon: Globe2,
       t: "Export Compliance",
-      d: "JAKIM · ESMA · HFA · EU certification readiness",
+      d: "JAKIM - ESMA - HFA - EU certification readiness",
       verdict: "halal" as const,
     },
   ];
@@ -549,18 +549,18 @@ function ProductShowcase() {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                Scholarly comparison
+                Evidence checklist
               </div>
-              <h3 className="mt-1 font-display text-lg">Music in worship contexts</h3>
+              <h3 className="mt-1 font-display text-lg">What the reviewer needs next</h3>
             </div>
-            <VerdictBadge verdict="ikhtilaf" size="sm" />
+            <VerdictBadge verdict="mushbooh" size="sm" />
           </div>
           <div className="mt-6 space-y-3">
             {[
-              { school: "Hanafi (majority)", pos: "Generally impermissible", lean: 18, color: "verdict-haram" },
-              { school: "Mālikī", pos: "Discouraged with exceptions", lean: 35, color: "verdict-mushbooh" },
-              { school: "Al-Ghazālī (Iḥyāʾ)", pos: "Permissible with conditions", lean: 72, color: "verdict-halal" },
-              { school: "Ibn Ḥazm (Ẓāhirī)", pos: "Permissible", lean: 88, color: "verdict-halal" },
+              { school: "Ingredient source", pos: "Supplier declaration needed", lean: 42, color: "verdict-mushbooh" },
+              { school: "Animal-origin proof", pos: "Required for gelatin/collagen", lean: 28, color: "verdict-haram" },
+              { school: "Market checklist", pos: "JAKIM or export authority review", lean: 64, color: "verdict-mushbooh" },
+              { school: "Final report", pos: "Saved to Supabase history", lean: 86, color: "verdict-halal" },
             ].map((s) => (
               <div key={s.school} className="rounded-xl border border-hairline bg-background/30 p-3.5">
                 <div className="flex items-center justify-between text-sm">
@@ -602,7 +602,7 @@ function ProductShowcase() {
               ))}
             </div>
             <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-              Strong consensus across primary sources. Minor variation in contemporary application.
+              Confidence reflects extraction quality, graph coverage, and whether evidence is still missing.
             </p>
           </div>
 
@@ -611,12 +611,12 @@ function ProductShowcase() {
               Safer path
             </div>
             <p className="mt-3 text-sm leading-relaxed text-foreground/85">
-              When in doubt, the more cautious position protects the religion. Choose the
-              Shariah-screened alternative where available.
+              When data is incomplete, HalalIQ marks the item as Needs Review instead of giving a
+              false low-risk result.
             </p>
             <div className="mt-4 inline-flex items-center gap-2 text-xs text-jade">
               <ShieldCheck className="h-3.5 w-3.5" />
-              Recommended caution applied
+              Conservative fallback applied
             </div>
           </div>
         </div>
@@ -645,8 +645,8 @@ function FinalCTA() {
             <span className="italic text-gradient-jade">conviction.</span>
           </h2>
           <p className="mx-auto mt-5 max-w-lg text-pretty text-muted-foreground">
-            Halal Intelligence is the trust layer for modern Muslim life — from the kitchen to the
-            capital markets.
+            HalalIQ helps manufacturers turn ingredient lists, label photos, and market rules into
+            a clear pre-certification readiness report.
           </p>
           <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
             <Link
