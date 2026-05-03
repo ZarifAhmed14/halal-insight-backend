@@ -1,5 +1,7 @@
 export type OverallStatus = "Not Ready" | "Needs Review" | "Low Risk";
 
+export type ComplianceDomain = "food" | "cosmetics" | "export_compliance" | "pharmaceuticals";
+
 export type ComplianceEntry = {
   ingredient: string;
   risk: string;
@@ -26,6 +28,7 @@ export type ReportHistoryItem = {
 
 export type ComplianceReport = {
   product_name: string;
+  domain?: ComplianceDomain;
   overall_status: OverallStatus;
   summary: ComplianceSummary;
   blockers: ComplianceEntry[];
@@ -38,13 +41,38 @@ export type AnalyzeProductInput = {
   product_name: string;
   ingredients: string[];
   market: string;
+  domain?: ComplianceDomain;
+};
+
+export type ExtractIngredientsInput = {
+  image_base64: string;
+  mime_type: string;
+  product_name?: string;
+  market?: string;
+  domain?: ComplianceDomain;
+};
+
+export type ExtractIngredientsResult = {
+  raw_text: string;
+  ingredients: string[];
+  confidence: number;
+  warnings: string[];
+  needs_review: boolean;
+  visual_warning?: string | null;
 };
 
 const DEFAULT_ANALYZE_URL =
   "https://bwelgjbnzhlxwymakbtp.supabase.co/functions/v1/analyze-food";
 
+const DEFAULT_EXTRACT_URL =
+  "https://bwelgjbnzhlxwymakbtp.supabase.co/functions/v1/extract-ingredients-from-image";
+
 function getAnalyzeUrl(): string {
   return import.meta.env.VITE_HALALIQ_ANALYZE_URL || DEFAULT_ANALYZE_URL;
+}
+
+function getExtractUrl(): string {
+  return import.meta.env.VITE_HALALIQ_EXTRACT_URL || DEFAULT_EXTRACT_URL;
 }
 
 function getOptionalAnonKey(): string | undefined {
@@ -101,4 +129,22 @@ export async function analyzeProduct(input: AnalyzeProductInput): Promise<Compli
   }
 
   return payload as ComplianceReport;
+}
+
+export async function extractIngredientsFromImage(
+  input: ExtractIngredientsInput,
+): Promise<ExtractIngredientsResult> {
+  const response = await fetch(getExtractUrl(), {
+    method: "POST",
+    headers: buildHeaders(),
+    body: JSON.stringify(input),
+  });
+
+  const payload = await readJsonResponse(response);
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(payload, "Ingredient extraction failed."));
+  }
+
+  return payload as ExtractIngredientsResult;
 }

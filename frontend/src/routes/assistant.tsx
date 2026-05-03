@@ -6,6 +6,7 @@ import {
   ArrowUp,
   Bookmark,
   BadgeCheck,
+  Camera,
   CheckCircle2,
   ChevronDown,
   ClipboardCheck,
@@ -19,13 +20,17 @@ import {
   ScrollText,
   ShieldCheck,
   Sparkles,
+  WandSparkles,
 } from "lucide-react";
 import { Nav } from "@/components/site/Nav";
 import { VerdictBadge } from "@/components/site/VerdictBadge";
 import {
   analyzeProduct,
+  extractIngredientsFromImage,
+  type ComplianceDomain,
   type ComplianceEntry,
   type ComplianceReport,
+  type ExtractIngredientsResult,
   type OverallStatus,
   type ReportHistoryItem,
 } from "@/lib/halaliq-api";
@@ -56,18 +61,82 @@ const SAMPLE_SCANS = [
     productName: "Chocolate Wafer Biscuit",
     ingredients: "E471\nGelatin\nVanilla Flavor",
     market: "Malaysia",
+    domain: "food" as ComplianceDomain,
   },
   {
-    productName: "Strawberry Yogurt Drink",
-    ingredients: "Gelatin\nNatural Flavor\nCitric Acid",
+    productName: "Brightening Face Cream",
+    ingredients: "Collagen\nGlycerin\nFragrance\nCarmine",
     market: "Malaysia",
+    domain: "cosmetics" as ComplianceDomain,
   },
   {
-    productName: "Instant Noodle Seasoning",
-    ingredients: "E621\nChicken Flavor\nPalm Oil",
-    market: "Indonesia",
+    productName: "UAE Export Snack Pack",
+    ingredients: "E471\nGelatin\nNatural Flavor",
+    market: "UAE",
+    domain: "export_compliance" as ComplianceDomain,
+  },
+  {
+    productName: "Softgel Supplement",
+    ingredients: "Gelatin\nGlycerin\nMagnesium Stearate",
+    market: "Malaysia",
+    domain: "pharmaceuticals" as ComplianceDomain,
   },
 ];
+
+const DOMAIN_OPTIONS: Array<{ value: ComplianceDomain; label: string; helper: string }> = [
+  { value: "food", label: "Food", helper: "Ingredient halal readiness" },
+  { value: "cosmetics", label: "Cosmetics", helper: "Personal care ingredients" },
+  { value: "export_compliance", label: "Export Compliance", helper: "Market readiness checklist" },
+  { value: "pharmaceuticals", label: "Pharmaceuticals", helper: "Excipients and capsules" },
+];
+
+function getDomainLabel(domain: ComplianceDomain | undefined): string {
+  return DOMAIN_OPTIONS.find((option) => option.value === domain)?.label ?? "Food";
+}
+
+function buildDemoExtractionResult(domain: ComplianceDomain): ExtractIngredientsResult {
+  if (domain === "cosmetics") {
+    return {
+      raw_text: "Ingredients: Collagen, Glycerin, Fragrance, Carmine.",
+      ingredients: ["Collagen", "Glycerin", "Fragrance", "Carmine"],
+      confidence: 0.82,
+      warnings: ["Demo OCR mode is active because no paid AI key is required yet."],
+      needs_review: true,
+      visual_warning: null,
+    };
+  }
+
+  if (domain === "export_compliance") {
+    return {
+      raw_text: "Ingredients: E471, Gelatin, Natural Flavor.",
+      ingredients: ["E471", "Gelatin", "Natural Flavor"],
+      confidence: 0.8,
+      warnings: ["Demo OCR mode is active. Use this to show the review flow before AI keys are connected."],
+      needs_review: true,
+      visual_warning: null,
+    };
+  }
+
+  if (domain === "pharmaceuticals") {
+    return {
+      raw_text: "Ingredients: Gelatin, Glycerin, Magnesium Stearate.",
+      ingredients: ["Gelatin", "Glycerin", "Magnesium Stearate"],
+      confidence: 0.81,
+      warnings: ["Demo OCR mode is active. Pharmaceutical ingredients still need reviewer confirmation."],
+      needs_review: true,
+      visual_warning: null,
+    };
+  }
+
+  return {
+    raw_text: "Ingredients: E471, Gelatin, Vanilla Flavor, Soy Lecithin.",
+    ingredients: ["E471", "Gelatin", "Vanilla Flavor", "Soy Lecithin"],
+    confidence: 0.84,
+    warnings: ["Demo OCR mode is active because no paid AI key is required yet."],
+    needs_review: true,
+    visual_warning: "Visual recognition is paused until an AI key is connected. Please verify the label manually.",
+  };
+}
 
 function AssistantPage() {
   const [submitted, setSubmitted] = useState(false);
@@ -75,6 +144,12 @@ function AssistantPage() {
   const [productName, setProductName] = useState("Chocolate Wafer Biscuit");
   const [ingredientsInput, setIngredientsInput] = useState("E471\nGelatin\nVanilla Flavor");
   const [market, setMarket] = useState("Malaysia");
+  const [domain, setDomain] = useState<ComplianceDomain>("food");
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [extractionResult, setExtractionResult] = useState<ExtractIngredientsResult | null>(null);
+  const [extractionError, setExtractionError] = useState<string | null>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
   const [report, setReport] = useState<ComplianceReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -107,6 +182,7 @@ function AssistantPage() {
         product_name: productName.trim(),
         ingredients,
         market: market.trim(),
+        domain,
       });
 
       setReport(nextReport);
@@ -118,10 +194,64 @@ function AssistantPage() {
     }
   };
 
+  const handleImageSelected = (file: File | null) => {
+    setImageFile(file);
+    setExtractionResult(null);
+    setExtractionError(null);
+
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+
+    setImagePreviewUrl(file ? URL.createObjectURL(file) : null);
+  };
+
+  const runImageExtraction = async () => {
+    if (!imageFile) {
+      setExtractionError("Choose a label photo before extracting ingredients.");
+      return;
+    }
+
+    setExtractionError(null);
+    setIsExtracting(true);
+
+    try {
+      const imagePayload = await readImageAsBase64(imageFile);
+      const extracted = await extractIngredientsFromImage({
+        ...imagePayload,
+        product_name: productName.trim() || undefined,
+        market: market.trim() || undefined,
+        domain,
+      });
+
+      setExtractionResult(extracted);
+
+      if (extracted.ingredients.length > 0) {
+        setIngredientsInput(extracted.ingredients.join("\n"));
+      }
+    } catch (extractError) {
+      setExtractionResult(null);
+      setExtractionError(
+        extractError instanceof Error ? extractError.message : "Unable to extract ingredients.",
+      );
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const useDemoExtraction = () => {
+    const demoResult = buildDemoExtractionResult(domain);
+    setExtractionError(null);
+    setExtractionResult(demoResult);
+    setIngredientsInput(demoResult.ingredients.join("\n"));
+  };
+
   const loadSample = (sample: (typeof SAMPLE_SCANS)[number]) => {
     setProductName(sample.productName);
     setIngredientsInput(sample.ingredients);
     setMarket(sample.market);
+    setDomain(sample.domain);
+    handleImageSelected(null);
     setReport(null);
     setError(null);
     setSubmitted(false);
@@ -160,6 +290,9 @@ function AssistantPage() {
                   >
                     <PackageCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <span className="truncate">{sample.productName}</span>
+                    <span className="ml-auto rounded-full border border-hairline px-2 py-0.5 text-[10px] text-muted-foreground">
+                      {getDomainLabel(sample.domain)}
+                    </span>
                   </button>
                 </li>
               ))}
@@ -194,11 +327,20 @@ function AssistantPage() {
                   productName={productName}
                   ingredientsInput={ingredientsInput}
                   market={market}
+                  domain={domain}
                   isLoading={isLoading}
+                  isExtracting={isExtracting}
                   error={error}
+                  extractionError={extractionError}
+                  imagePreviewUrl={imagePreviewUrl}
+                  extractionResult={extractionResult}
                   onProductNameChange={setProductName}
                   onIngredientsChange={setIngredientsInput}
                   onMarketChange={setMarket}
+                  onDomainChange={setDomain}
+                  onImageSelected={handleImageSelected}
+                  onExtractImage={runImageExtraction}
+                  onUseDemoExtraction={useDemoExtraction}
                   onSubmit={runScan}
                 />
               </motion.div>
@@ -213,6 +355,7 @@ function AssistantPage() {
                 <ReportHeader
                   productName={productName}
                   market={market}
+                  domain={report?.domain ?? domain}
                   report={report}
                   isLoading={isLoading}
                   onEdit={() => setSubmitted(false)}
@@ -252,9 +395,11 @@ function AssistantPage() {
                     <MiniScanBar
                       productName={productName}
                       market={market}
+                      domain={domain}
                       isLoading={isLoading}
                       onProductNameChange={setProductName}
                       onMarketChange={setMarket}
+                      onDomainChange={setDomain}
                       onSubmit={runScan}
                     />
                   </div>
@@ -273,6 +418,27 @@ function parseIngredients(value: string): string[] {
     .split(/\r?\n|,/)
     .map((ingredient) => ingredient.trim())
     .filter(Boolean);
+}
+
+function readImageAsBase64(file: File): Promise<{ image_base64: string; mime_type: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const [, base64 = ""] = result.split(",");
+
+      if (!base64) {
+        reject(new Error("Could not read the selected image."));
+        return;
+      }
+
+      resolve({ image_base64: base64, mime_type: file.type || "image/jpeg" });
+    };
+
+    reader.onerror = () => reject(new Error("Could not read the selected image."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function statusToVerdict(status: OverallStatus): "halal" | "haram" | "mushbooh" {
@@ -364,21 +530,39 @@ function ScanForm({
   productName,
   ingredientsInput,
   market,
+  domain,
   isLoading,
+  isExtracting,
   error,
+  extractionError,
+  imagePreviewUrl,
+  extractionResult,
   onProductNameChange,
   onIngredientsChange,
   onMarketChange,
+  onDomainChange,
+  onImageSelected,
+  onExtractImage,
+  onUseDemoExtraction,
   onSubmit,
 }: {
   productName: string;
   ingredientsInput: string;
   market: string;
+  domain: ComplianceDomain;
   isLoading: boolean;
+  isExtracting: boolean;
   error: string | null;
+  extractionError: string | null;
+  imagePreviewUrl: string | null;
+  extractionResult: ExtractIngredientsResult | null;
   onProductNameChange: (value: string) => void;
   onIngredientsChange: (value: string) => void;
   onMarketChange: (value: string) => void;
+  onDomainChange: (value: ComplianceDomain) => void;
+  onImageSelected: (file: File | null) => void;
+  onExtractImage: () => void;
+  onUseDemoExtraction: () => void;
   onSubmit: () => void;
 }) {
   return (
@@ -389,7 +573,7 @@ function ScanForm({
       }}
       className="mt-10 rounded-[2rem] border border-hairline bg-surface p-4 shadow-elegant sm:p-6"
     >
-      <div className="grid gap-4 sm:grid-cols-[1.4fr_0.8fr]">
+      <div className="grid gap-4 lg:grid-cols-[1.3fr_0.8fr_1fr]">
         <label className="space-y-2">
           <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
             Product name
@@ -404,6 +588,26 @@ function ScanForm({
 
         <label className="space-y-2">
           <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Domain
+          </span>
+          <select
+            value={domain}
+            onChange={(event) => onDomainChange(event.target.value as ComplianceDomain)}
+            className="w-full rounded-2xl border border-hairline bg-background/50 px-4 py-3 text-sm outline-none transition-colors focus:border-jade/50"
+          >
+            {DOMAIN_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            {DOMAIN_OPTIONS.find((option) => option.value === domain)?.helper}
+          </p>
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
             Market
           </span>
           <input
@@ -413,6 +617,101 @@ function ScanForm({
             className="w-full rounded-2xl border border-hairline bg-background/50 px-4 py-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-jade/50"
           />
         </label>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-dashed border-jade/30 bg-jade/5 p-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-jade">
+              <Camera className="h-3.5 w-3.5" />
+              Scan from label photo
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              Upload or take a photo of the ingredient label. HalalIQ extracts text only, then you
+              review and edit the ingredient list before running the compliance scan.
+            </p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background">
+                <Camera className="h-4 w-4 text-jade" />
+                Choose image
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(event) => onImageSelected(event.target.files?.[0] ?? null)}
+                  className="sr-only"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={onExtractImage}
+                disabled={isExtracting || !imagePreviewUrl}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-foreground px-4 py-2.5 text-sm font-medium text-background transition-all hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isExtracting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <WandSparkles className="h-4 w-4" />
+                )}
+                Extract ingredients
+              </button>
+              <button
+                type="button"
+                onClick={onUseDemoExtraction}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background"
+              >
+                <Sparkles className="h-4 w-4 text-jade" />
+                Use demo OCR
+              </button>
+            </div>
+          </div>
+
+          {imagePreviewUrl && (
+            <div className="overflow-hidden rounded-xl border border-hairline bg-background/50 md:w-40">
+              <img src={imagePreviewUrl} alt="Selected ingredient label preview" className="h-36 w-full object-cover" />
+            </div>
+          )}
+        </div>
+
+        {extractionError && <ErrorCard message={extractionError} compact />}
+
+        {extractionResult && (
+          <div className="mt-4 grid gap-3 rounded-2xl border border-hairline bg-background/45 p-4 md:grid-cols-[1fr_0.9fr]">
+            <div>
+              <div className="flex items-center gap-2 text-xs text-jade">
+                <ClipboardCheck className="h-3.5 w-3.5" />
+                Extracted ingredients
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-foreground/85">
+                {extractionResult.ingredients.length > 0
+                  ? extractionResult.ingredients.join(", ")
+                  : "No ingredients were confidently extracted."}
+              </p>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Confidence: {Math.round(extractionResult.confidence * 100)}% - Review required:{" "}
+                {extractionResult.needs_review ? "Yes" : "No"}
+              </p>
+            </div>
+            <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
+              {extractionResult.visual_warning && (
+                <div className="rounded-xl border border-verdict-mushbooh/25 bg-verdict-mushbooh/10 p-3 text-foreground/80">
+                  {extractionResult.visual_warning}
+                </div>
+              )}
+              {extractionResult.warnings.length > 0 ? (
+                extractionResult.warnings.map((warning) => (
+                  <div key={warning} className="rounded-xl border border-hairline bg-surface/80 p-3">
+                    {warning}
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-xl border border-hairline bg-surface/80 p-3">
+                  Review the editable ingredient box below before scanning.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       <label className="mt-4 block space-y-2">
@@ -451,12 +750,14 @@ function ScanForm({
 function ReportHeader({
   productName,
   market,
+  domain,
   report,
   isLoading,
   onEdit,
 }: {
   productName: string;
   market: string;
+  domain: ComplianceDomain;
   report: ComplianceReport | null;
   isLoading: boolean;
   onEdit: () => void;
@@ -475,7 +776,9 @@ function ReportHeader({
           <h1 className="font-display mt-2 text-2xl font-light leading-tight sm:text-3xl">
             {report?.product_name || productName}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">Target market: {market}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {getDomainLabel(domain)} analysis for target market: {market}
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -987,16 +1290,20 @@ function ActionBar({ report }: { report: ComplianceReport }) {
 function MiniScanBar({
   productName,
   market,
+  domain,
   isLoading,
   onProductNameChange,
   onMarketChange,
+  onDomainChange,
   onSubmit,
 }: {
   productName: string;
   market: string;
+  domain: ComplianceDomain;
   isLoading: boolean;
   onProductNameChange: (value: string) => void;
   onMarketChange: (value: string) => void;
+  onDomainChange: (value: ComplianceDomain) => void;
   onSubmit: () => void;
 }) {
   return (
@@ -1005,7 +1312,7 @@ function MiniScanBar({
         event.preventDefault();
         onSubmit();
       }}
-      className="grid gap-2 sm:grid-cols-[1fr_180px_auto]"
+      className="grid gap-2 sm:grid-cols-[1fr_180px_190px_auto]"
     >
       <input
         value={productName}
@@ -1017,6 +1324,17 @@ function MiniScanBar({
         onChange={(event) => onMarketChange(event.target.value)}
         className="rounded-xl border border-hairline bg-surface px-3 py-2 text-sm outline-none focus:border-jade/50"
       />
+      <select
+        value={domain}
+        onChange={(event) => onDomainChange(event.target.value as ComplianceDomain)}
+        className="rounded-xl border border-hairline bg-surface px-3 py-2 text-sm outline-none focus:border-jade/50"
+      >
+        {DOMAIN_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
       <button
         type="submit"
         disabled={isLoading}

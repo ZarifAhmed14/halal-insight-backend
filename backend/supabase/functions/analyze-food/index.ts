@@ -2,10 +2,12 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"; // This im
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2"; // This imports the Supabase client because we need to save submissions and reports into Supabase tables.
 import neo4j from "npm:neo4j-driver@6"; // This imports the Neo4j driver because the function queries halal risk data from Neo4j.
 type OverallStatus = "Not Ready" | "Needs Review" | "Low Risk"; // This type keeps the allowed product-level statuses explicit so the API response stays predictable.
+type ComplianceDomain = "food" | "cosmetics" | "export_compliance" | "pharmaceuticals"; // This type lists the product domains HalalIQ understands so the API can grow beyond food safely.
 type ValidatedInput = { // This type describes the safe request shape that exists after validation succeeds.
   product_name: string; // This field stores the validated product name because the report now needs product-level output.
   ingredients: string[]; // This field stores the original validated ingredient strings so normalization can happen after validation.
   market: string; // This field stores the cleaned market string because later layers depend on a real market value.
+  domain: ComplianceDomain; // This field stores the validated compliance domain so food, cosmetics, export, and pharma scans stay explicit.
 }; // This line closes the ValidatedInput type definition so TypeScript knows the shape is complete.
 type ValidationSuccess = { // This type describes the shape of a successful validation result.
   success: true; // This flag tells the rest of the code that validation passed and the data is safe to use.
@@ -43,6 +45,7 @@ type ReportSummary = { // This type describes the compact summary block returned
 }; // This line closes the ReportSummary type definition so the summary shape is explicit.
 type ComplianceReport = { // This type describes the final API response format returned by the function.
   product_name: string; // This field stores the product name because the response now supports product-level analysis.
+  domain: ComplianceDomain; // This field stores the product domain because the frontend and stored report need domain context.
   overall_status: OverallStatus; // This field stores the computed overall product status derived from blocker and warning counts.
   summary: ReportSummary; // This field stores the top-level summary block that helps the frontend render quickly.
   blockers: ComplianceEntry[]; // This field stores blocker entries in a stable array.
@@ -63,6 +66,7 @@ type AggregatedComplianceEntry = { // This type describes the temporary aggregat
 }; // This line closes the AggregatedComplianceEntry type definition so the aggregation shape is explicit.
 let cachedDriver: neo4j.Driver | null = null; // This variable stores a reusable Neo4j driver so we do not reconnect on every request.
 let cachedSupabaseClient: SupabaseClient | null = null; // This variable stores a reusable Supabase client so we do not recreate it on every request.
+const allowedDomains: ComplianceDomain[] = ["food", "cosmetics", "export_compliance", "pharmaceuticals"]; // This array defines the domain rollout order, with export compliance intentionally second after cosmetics.
 const corsHeaders = { // This object stores CORS headers so browser-based frontends are allowed to call this Edge Function.
   "Access-Control-Allow-Origin": "*", // This allows any frontend origin to call the function, which is useful while the app is still moving between local and hosted URLs.
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", // This allows Supabase auth headers and JSON headers to pass through browser preflight checks.
@@ -77,6 +81,21 @@ function createJsonResponse(body: unknown, status = 200): Response { // This hel
 function isPlainObject(value: unknown): value is Record<string, unknown> { // This helper checks that the request body is a normal object before we read properties from it.
   return typeof value === "object" && value !== null && !Array.isArray(value); // This returns true only for non-null objects that are not arrays, which protects later property access.
 } // This line closes the isPlainObject helper so validation can reuse it.
+function isComplianceDomain(value: string): value is ComplianceDomain { // This helper checks whether a string is one of the supported compliance domains.
+  return allowedDomains.includes(value as ComplianceDomain); // This returns true only for allowed domains so invalid domain names cannot enter the workflow.
+} // This line closes the isComplianceDomain helper so validation can reuse it.
+function getDomainLabel(domain: ComplianceDomain): string { // This helper converts internal domain codes into friendly labels for report text.
+  if (domain === "food") { // This checks whether the scan is using the original food compliance workflow.
+    return "Food"; // This returns the human-readable label for the food domain.
+  } // This line closes the food label branch so other domains can be checked.
+  if (domain === "cosmetics") { // This checks whether the scan is for cosmetics and personal care products.
+    return "Cosmetics & Personal Care"; // This returns the human-readable label for the cosmetics domain.
+  } // This line closes the cosmetics label branch so export compliance can be checked next.
+  if (domain === "export_compliance") { // This checks whether the scan is for export-readiness requirements.
+    return "Export Compliance"; // This returns the human-readable label for the export compliance domain.
+  } // This line closes the export compliance label branch so the pharmaceutical fallback can run.
+  return "Pharmaceuticals"; // This returns the human-readable label for the pharmaceutical domain.
+} // This line closes the getDomainLabel helper so summary and fallback logic can reuse it.
 function getRequiredEnv(name: string): string { // This helper reads an environment variable and fails fast when the configuration is incomplete.
   const value = Deno.env.get(name); // This reads the environment variable from the Edge Function runtime.
   if (!value) { // This checks whether the environment variable is missing or empty.
@@ -137,7 +156,16 @@ function validateInput(body: unknown): ValidationResult { // This helper validat
   if (market.length === 0) { // This checks that the trimmed market still contains real text after whitespace is removed.
     return { success: false, error: "`market` must be a non-empty string." }; // This returns a clear error because a blank market is unusable.
   } // This line closes the blank-market guard so the validated payload always has a meaningful market.
-  return { success: true, data: { product_name: productName, ingredients: validatedIngredients, market } }; // This returns the validated data so the next layer can normalize it safely.
+  const rawDomain = body.domain; // This reads the optional domain field so old clients can keep working while new domain-aware clients can be explicit.
+  const domainCandidate = rawDomain === undefined ? "food" : rawDomain; // This defaults missing domain values to food so existing frontend and API calls remain backward-compatible.
+  if (typeof domainCandidate !== "string") { // This checks that the domain value is text because domain names are represented as strings.
+    return { success: false, error: "`domain` must be one of: food, cosmetics, export_compliance, pharmaceuticals." }; // This returns a clear error when domain has the wrong type.
+  } // This line closes the domain-type guard so trimming becomes safe.
+  const domain = domainCandidate.trim(); // This trims the domain string because surrounding whitespace should not affect validation.
+  if (!isComplianceDomain(domain)) { // This checks whether the domain is one of the domains supported by HalalIQ.
+    return { success: false, error: "`domain` must be one of: food, cosmetics, export_compliance, pharmaceuticals." }; // This returns a clear error when the domain is unsupported.
+  } // This line closes the supported-domain guard so the validated payload can include a safe domain value.
+  return { success: true, data: { product_name: productName, ingredients: validatedIngredients, market, domain } }; // This returns the validated data so the next layer can normalize it safely.
 } // This line closes the validateInput helper so the handler can reuse it cleanly.
 function toTitleCaseWord(word: string): string { // This helper converts one word into title case so ordinary ingredient names become consistent.
   return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(); // This uppercases the first letter and lowercases the rest so GELATIN becomes Gelatin.
@@ -230,8 +258,10 @@ async function queryIngredientCompliance(input: ValidatedInput): Promise<Queried
     const query = [ // This array builds the Cypher query in a readable way so each clause is easy to inspect.
       "MATCH (i:Ingredient)-[:HAS_RISK]->(r:Risk)", // This finds risk relationships connected to ingredients.
       "MATCH (i)-[:AFFECTS_MARKET]->(selectedMarket:Market)", // This restricts results to ingredients that affect the requested market.
+      "OPTIONAL MATCH (r)-[:APPLIES_TO_DOMAIN]->(riskDomain:Domain)", // This reads an optional domain relationship so new domain-aware risk data can coexist with legacy graph rows.
       "WHERE i.name IN $ingredients", // This filters the query to only the normalized ingredient names provided by the request.
       "AND selectedMarket.name = $market", // This filters the query to the requested market value.
+      "AND (riskDomain IS NULL OR riskDomain.name = $domain)", // This keeps legacy risks when no domain exists and filters domain-aware risks to the requested domain.
       "OPTIONAL MATCH (i)-[:REQUIRES_DOCUMENT]->(d:DocumentRequirement)", // This fetches any required documents linked to the ingredient.
       "OPTIONAL MATCH (i)-[:AFFECTS_MARKET]->(affectedMarket:Market)", // This fetches every affected market so the response can show broader impact.
       "RETURN", // This starts the return section of the Cypher query.
@@ -242,7 +272,7 @@ async function queryIngredientCompliance(input: ValidatedInput): Promise<Queried
       "  collect(DISTINCT affectedMarket.name) AS affected_markets", // This returns unique affected market names for the ingredient.
       "ORDER BY ingredient, risk", // This keeps the raw query output stable and predictable.
     ].join("\n"); // This joins the query lines into one Cypher string that Neo4j can execute.
-    const parameters = { ingredients: input.ingredients, market: input.market }; // This builds the parameter object so the query remains fully parameterized and safe.
+    const parameters = { ingredients: input.ingredients, market: input.market, domain: input.domain }; // This builds the parameter object so the query remains fully parameterized and safe.
     const result = await session.run(query, parameters); // This executes the Cypher query with the normalized ingredients and market.
     const uniqueResults = new Map<string, QueriedIngredientRisk>(); // This map removes duplicate rows while keeping the query-layer output clean.
     for (const record of result.records) { // This loops through each Neo4j record so we can map it into plain JSON-friendly data.
@@ -270,6 +300,45 @@ async function queryIngredientCompliance(input: ValidatedInput): Promise<Queried
     await session.close(); // This closes the Neo4j session promptly so connections are managed efficiently.
   } // This line closes the try/finally block for the query helper.
 } // This line closes the queryIngredientCompliance helper so the handler can call it cleanly.
+function getDomainFallbackDocuments(domain: ComplianceDomain): string[] { // This helper returns baseline evidence requirements when the graph does not yet have domain-specific data.
+  if (domain === "cosmetics") { // This checks whether the scan is in the first expansion domain, cosmetics and personal care.
+    return ["Supplier declaration", "Animal-origin statement", "Alcohol content statement", "Vegan or plant-origin proof", "Halal certificate"]; // This returns cosmetic-focused documents that help reviewers validate ingredients such as alcohol, collagen, lanolin, carmine, and fragrance solvents.
+  } // This line closes the cosmetics document branch so export compliance can be checked next.
+  if (domain === "export_compliance") { // This checks whether the scan is for export-readiness requirements instead of pure ingredient risk.
+    return ["Target-market halal certificate", "Authority-specific checklist", "Label compliance evidence", "Importer or distributor declaration", "Ingredient specification sheet"]; // This returns export-focused documents for market readiness checks such as JAKIM, ESMA, HFA, and EU-facing exports.
+  } // This line closes the export compliance document branch so pharmaceutical documents can be checked next.
+  if (domain === "pharmaceuticals") { // This checks whether the scan is for medicine, supplement, or pharmaceutical inputs.
+    return ["Excipient origin statement", "Capsule shell declaration", "Alcohol solvent statement", "Gelatin source certificate", "Scholar or technical review note"]; // This returns pharma-focused documents because excipients and medical necessity often need stronger review.
+  } // This line closes the pharmaceutical document branch so the food fallback can run.
+  return ["Supplier declaration", "Halal certificate"]; // This returns a minimal food evidence fallback even though food usually relies on graph data first.
+} // This line closes the getDomainFallbackDocuments helper so domain fallback rows can reuse it.
+function buildDomainFallbackReasoning(ingredient: string, input: ValidatedInput): string { // This helper explains why a domain fallback warning exists when graph data is not yet complete.
+  const domainLabel = getDomainLabel(input.domain); // This converts the domain code into a friendly label for the explanation.
+  if (input.domain === "export_compliance") { // This checks whether the fallback is for market-readiness rather than ingredient-only halal risk.
+    return `${ingredient} needs export-compliance review for ${input.market} because market readiness depends on authority-specific documents, labeling, and certification evidence, not ingredient matching alone.`; // This returns export-specific reasoning so users understand the warning is a checklist gap, not a final haram ruling.
+  } // This line closes the export-specific reasoning branch so ingredient-domain reasoning can run.
+  return `${ingredient} needs ${domainLabel} halal review because this domain is not yet fully covered by the Neo4j knowledge graph, so HalalIQ is asking for evidence instead of marking it low risk automatically.`; // This returns safe fallback reasoning so incomplete graph coverage does not produce false confidence.
+} // This line closes the buildDomainFallbackReasoning helper so fallback rows remain readable and reusable.
+function addDomainReviewFallbackRows(input: ValidatedInput, rows: QueriedIngredientRisk[]): QueriedIngredientRisk[] { // This helper adds Medium review rows for non-food ingredients that Neo4j did not return yet.
+  if (input.domain === "food") { // This checks whether the scan uses the established food graph behavior.
+    return rows; // This returns food rows unchanged so existing food behavior is preserved.
+  } // This line closes the food guard so only expansion domains receive fallback warnings.
+  const matchedIngredients = new Set(rows.map((row) => row.ingredient)); // This records which ingredients already had graph data so we do not duplicate them.
+  const fallbackRows: QueriedIngredientRisk[] = []; // This array collects synthetic review rows for unmatched expansion-domain ingredients.
+  for (const ingredient of input.ingredients) { // This loops through every normalized ingredient so missing graph coverage can be handled defensively.
+    if (matchedIngredients.has(ingredient)) { // This checks whether Neo4j already returned data for the ingredient.
+      continue; // This skips ingredients that already have graph-backed risk data.
+    } // This line closes the matched-ingredient guard so only missing ingredients become review warnings.
+    fallbackRows.push({ // This adds one domain-aware Medium warning row for the unmatched ingredient.
+      ingredient, // This stores the normalized ingredient name from the request.
+      risk: "Medium", // This marks the unmatched expansion-domain ingredient as a warning so it needs review instead of being treated as safe.
+      reasoning_source: buildDomainFallbackReasoning(ingredient, input), // This stores a clear explanation for the fallback warning.
+      required_documents: getDomainFallbackDocuments(input.domain), // This stores baseline evidence requirements for the selected domain.
+      affected_markets: [input.market], // This keeps the warning tied to the requested market so the frontend has market context.
+    }); // This line closes the fallback row object so it can be added to the array.
+  } // This line closes the unmatched ingredient loop after every ingredient has been checked.
+  return [...rows, ...fallbackRows]; // This returns graph-backed rows first and fallback review rows second so no data is lost.
+} // This line closes the addDomainReviewFallbackRows helper so the handler can apply expansion-domain safety rules.
 function buildComplianceSummary(rows: QueriedIngredientRisk[], market: string): ComplianceSummary { // This helper contains the business logic layer that groups query rows into categories.
   const aggregatedResults = new Map<string, AggregatedComplianceEntry>(); // This map groups rows by ingredient so duplicates can be merged safely.
   for (const row of rows) { // This loops through each query-layer row so the business rules can process it.
@@ -337,22 +406,23 @@ function buildOverallStatus(groupedSummary: ComplianceSummary): OverallStatus { 
   } // This line closes the warning-status branch so the low-risk fallback can run when no warnings exist.
   return "Low Risk"; // This returns the lowest-risk status because the product has no blockers and no warnings.
 } // This line closes the buildOverallStatus helper so the report layer can reuse it.
-function buildHumanReadableSummary(groupedSummary: ComplianceSummary, totalIngredients: number, productName: string, overallStatus: OverallStatus): string { // This helper creates a short sentence that the frontend can display directly to users.
+function buildHumanReadableSummary(groupedSummary: ComplianceSummary, totalIngredients: number, productName: string, overallStatus: OverallStatus, domain: ComplianceDomain): string { // This helper creates a short sentence that the frontend can display directly to users.
   const blockersCount = groupedSummary.blockers.length; // This reads the number of blocker entries from the grouped result.
   const warningsCount = groupedSummary.warnings.length; // This reads the number of warning entries from the grouped result.
   const safeCount = groupedSummary.safe.length; // This reads the number of safe entries from the grouped result.
-  return `${productName} was analyzed across ${totalIngredients} ingredient(s): ${blockersCount} blocker(s), ${warningsCount} warning(s), and ${safeCount} safe ingredient(s). Overall status: ${overallStatus}.`; // This returns a concise readable summary sentence that now includes the product name and overall status.
+  return `${productName} was analyzed for ${getDomainLabel(domain)} across ${totalIngredients} ingredient(s): ${blockersCount} blocker(s), ${warningsCount} warning(s), and ${safeCount} safe ingredient(s). Overall status: ${overallStatus}.`; // This returns a concise readable summary sentence that includes product name, domain, and overall status.
 } // This line closes the buildHumanReadableSummary helper so the report layer can reuse it.
-function buildComplianceReport(groupedSummary: ComplianceSummary, totalIngredients: number, productName: string): ComplianceReport { // This helper converts grouped results into the final API response format.
+function buildComplianceReport(groupedSummary: ComplianceSummary, totalIngredients: number, productName: string, domain: ComplianceDomain): ComplianceReport { // This helper converts grouped results into the final API response format.
   const overallStatus = buildOverallStatus(groupedSummary); // This computes the product-level overall status from the grouped blocker and warning counts.
   const summary: ReportSummary = { // This object builds the summary block required by the final response contract.
     total_ingredients: totalIngredients, // This stores how many normalized ingredients were processed.
     blockers_count: groupedSummary.blockers.length, // This stores how many blockers were found.
     warnings_count: groupedSummary.warnings.length, // This stores how many warnings were found.
-    human_readable: buildHumanReadableSummary(groupedSummary, totalIngredients, productName, overallStatus), // This stores the friendly summary sentence for frontend display.
+    human_readable: buildHumanReadableSummary(groupedSummary, totalIngredients, productName, overallStatus, domain), // This stores the friendly summary sentence for frontend display.
   }; // This line closes the summary object so it can be returned with the grouped arrays.
   return { // This returns the final report object in one consistent frontend-friendly shape.
     product_name: productName, // This includes the product name at the top level because the frontend needs product-level context.
+    domain, // This includes the compliance domain at the top level so saved reports and frontend views keep the domain context.
     overall_status: overallStatus, // This includes the product-level overall status derived from the grouped results.
     summary, // This includes the top-level summary block.
     blockers: groupedSummary.blockers, // This includes the blockers array exactly as built by the business layer.
@@ -426,10 +496,11 @@ serve(async (req: Request): Promise<Response> => { // This starts the Edge Funct
     if (normalizedIngredients.length === 0) { // This checks whether normalization removed every ingredient and left nothing usable.
       return createJsonResponse({ error: "`ingredients` must contain at least one non-empty value after normalization." }, 400); // This returns a clear error because later query logic needs at least one normalized ingredient.
     } // This line closes the post-normalization empty guard so the next lines only run when normalized data exists.
-    const normalizedData: ValidatedInput = { product_name: validationResult.data.product_name, ingredients: normalizedIngredients, market: validationResult.data.market }; // This replaces the raw ingredients with the normalized array while preserving the validated product name and market.
+    const normalizedData: ValidatedInput = { product_name: validationResult.data.product_name, ingredients: normalizedIngredients, market: validationResult.data.market, domain: validationResult.data.domain }; // This replaces the raw ingredients with the normalized array while preserving the validated product name, market, and domain.
     const queriedRows = await queryIngredientCompliance(normalizedData); // This runs the Neo4j query layer using the normalized ingredients and validated market.
-    const complianceSummary = buildComplianceSummary(queriedRows, normalizedData.market); // This runs the business logic layer on top of the query results.
-    const complianceReport = buildComplianceReport(complianceSummary, normalizedData.ingredients.length, normalizedData.product_name); // This builds the final frontend-friendly report object from the grouped result and product name.
+    const domainAwareRows = addDomainReviewFallbackRows(normalizedData, queriedRows); // This adds safe review warnings for expansion domains when Neo4j does not yet contain matching domain data.
+    const complianceSummary = buildComplianceSummary(domainAwareRows, normalizedData.market); // This runs the business logic layer on top of the graph results plus any domain fallback rows.
+    const complianceReport = buildComplianceReport(complianceSummary, normalizedData.ingredients.length, normalizedData.product_name, normalizedData.domain); // This builds the final frontend-friendly report object from the grouped result, product name, and domain.
     const supabase = getSupabaseClient(); // This gets the reusable Supabase client before product and report persistence so both writes use the same client setup.
     const product_name = normalizedData.product_name; // This creates the local product_name variable used by the product lookup block exactly where persistence happens.
     const ingredients = normalizedData.ingredients; // This creates the local ingredients variable used by the save call so the final persistence arguments stay clear.
