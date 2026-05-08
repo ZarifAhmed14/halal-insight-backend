@@ -61,8 +61,7 @@ export type ExtractIngredientsResult = {
   visual_warning?: string | null;
 };
 
-const DEFAULT_ANALYZE_URL =
-  "https://bwelgjbnzhlxwymakbtp.supabase.co/functions/v1/analyze-food";
+const DEFAULT_ANALYZE_URL = "https://bwelgjbnzhlxwymakbtp.supabase.co/functions/v1/analyze-food";
 
 const DEFAULT_EXTRACT_URL =
   "https://bwelgjbnzhlxwymakbtp.supabase.co/functions/v1/extract-ingredients-from-image";

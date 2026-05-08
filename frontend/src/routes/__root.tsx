@@ -30,17 +30,37 @@ export const Route = createRootRoute({
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Lovable App" },
-      { name: "description", content: "Halal Guide AI is a premium AI platform for making informed, halal-compliant decisions across finance, food, and lifestyle." },
+      {
+        name: "description",
+        content:
+          "Halal Guide AI is a premium AI platform for making informed, halal-compliant decisions across finance, food, and lifestyle.",
+      },
       { name: "author", content: "Lovable" },
       { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Halal Guide AI is a premium AI platform for making informed, halal-compliant decisions across finance, food, and lifestyle." },
+      {
+        property: "og:description",
+        content:
+          "Halal Guide AI is a premium AI platform for making informed, halal-compliant decisions across finance, food, and lifestyle.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
       { name: "twitter:title", content: "Lovable App" },
-      { name: "twitter:description", content: "Halal Guide AI is a premium AI platform for making informed, halal-compliant decisions across finance, food, and lifestyle." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/5a772213-d281-483e-9f36-75c1bba8865f/id-preview-ecd5a839--a8748948-291d-4507-b76b-a42e8c91dda8.lovable.app-1776626398721.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/5a772213-d281-483e-9f36-75c1bba8865f/id-preview-ecd5a839--a8748948-291d-4507-b76b-a42e8c91dda8.lovable.app-1776626398721.png" },
+      {
+        name: "twitter:description",
+        content:
+          "Halal Guide AI is a premium AI platform for making informed, halal-compliant decisions across finance, food, and lifestyle.",
+      },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/5a772213-d281-483e-9f36-75c1bba8865f/id-preview-ecd5a839--a8748948-291d-4507-b76b-a42e8c91dda8.lovable.app-1776626398721.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/5a772213-d281-483e-9f36-75c1bba8865f/id-preview-ecd5a839--a8748948-291d-4507-b76b-a42e8c91dda8.lovable.app-1776626398721.png",
+      },
     ],
     links: [
       {

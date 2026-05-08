@@ -7,10 +7,12 @@ import {
   Bookmark,
   BadgeCheck,
   Camera,
+  ChartNoAxesColumnIncreasing,
   CheckCircle2,
   ChevronDown,
   ClipboardCheck,
   Copy,
+  FileUp,
   FileText,
   History,
   Loader2,
@@ -90,77 +92,104 @@ const DOMAIN_OPTIONS: Array<{ value: ComplianceDomain; label: string; helper: st
   { value: "pharmaceuticals", label: "Pharmaceuticals", helper: "Excipients and capsules" },
 ];
 
+const MAX_IMPORTED_FILE_ROWS = 10;
+
+const MARKET_OPTIONS = [
+  {
+    value: "Malaysia",
+    label: "Malaysia",
+    authority: "JAKIM",
+    coverage: 92,
+    focus: "Local halal certification readiness",
+  },
+  {
+    value: "UAE",
+    label: "UAE",
+    authority: "ESMA / MOIAT",
+    coverage: 82,
+    focus: "Export documentation and market entry",
+  },
+  {
+    value: "United Kingdom",
+    label: "United Kingdom",
+    authority: "HFA / HMC style review",
+    coverage: 68,
+    focus: "Importer and certifier review support",
+  },
+  {
+    value: "European Union",
+    label: "European Union",
+    authority: "EU-facing export pack",
+    coverage: 58,
+    focus: "Traceability and evidence checklist",
+  },
+];
+
 function getDomainLabel(domain: ComplianceDomain | undefined): string {
   return DOMAIN_OPTIONS.find((option) => option.value === domain)?.label ?? "Food";
 }
 
-function buildDemoExtractionResult(domain: ComplianceDomain): ExtractIngredientsResult {
-  if (domain === "cosmetics") {
-    return {
-      raw_text: "Ingredients: Collagen, Glycerin, Fragrance, Carmine.",
-      ingredients: ["Collagen", "Glycerin", "Fragrance", "Carmine"],
-      confidence: 0.82,
-      warnings: ["Demo OCR mode is active because no paid AI key is required yet."],
-      needs_review: true,
-      visual_warning: null,
-    };
+function getMarketLabel(market: string): string {
+  return MARKET_OPTIONS.find((option) => option.value === market)?.label ?? market;
+}
+
+function buildInternalProductName({
+  productName,
+  domain,
+  market,
+  ingredients,
+}: {
+  productName: string;
+  domain: ComplianceDomain;
+  market: string;
+  ingredients: string[];
+}): string {
+  if (productName.trim().length > 0) {
+    return productName.trim();
   }
 
-  if (domain === "export_compliance") {
-    return {
-      raw_text: "Ingredients: E471, Gelatin, Natural Flavor.",
-      ingredients: ["E471", "Gelatin", "Natural Flavor"],
-      confidence: 0.8,
-      warnings: ["Demo OCR mode is active. Use this to show the review flow before AI keys are connected."],
-      needs_review: true,
-      visual_warning: null,
-    };
-  }
+  const firstIngredient = ingredients[0] ?? "Reviewed Label";
+  const ingredientSuffix = ingredients.length > 1 ? ` + ${ingredients.length - 1}` : "";
 
-  if (domain === "pharmaceuticals") {
-    return {
-      raw_text: "Ingredients: Gelatin, Glycerin, Magnesium Stearate.",
-      ingredients: ["Gelatin", "Glycerin", "Magnesium Stearate"],
-      confidence: 0.81,
-      warnings: ["Demo OCR mode is active. Pharmaceutical ingredients still need reviewer confirmation."],
-      needs_review: true,
-      visual_warning: null,
-    };
-  }
-
-  return {
-    raw_text: "Ingredients: E471, Gelatin, Vanilla Flavor, Soy Lecithin.",
-    ingredients: ["E471", "Gelatin", "Vanilla Flavor", "Soy Lecithin"],
-    confidence: 0.84,
-    warnings: ["Demo OCR mode is active because no paid AI key is required yet."],
-    needs_review: true,
-    visual_warning: "Visual recognition is paused until an AI key is connected. Please verify the label manually.",
-  };
+  return `${getDomainLabel(domain)} scan: ${firstIngredient}${ingredientSuffix} for ${getMarketLabel(market)}`;
 }
 
 function AssistantPage() {
   const [submitted, setSubmitted] = useState(false);
   const [tab, setTab] = useState<ReportTab>("summary");
-  const [productName, setProductName] = useState("Chocolate Wafer Biscuit");
-  const [ingredientsInput, setIngredientsInput] = useState("E471\nGelatin\nVanilla Flavor");
+  const [productName, setProductName] = useState("");
+  const [ingredientsInput, setIngredientsInput] = useState("");
   const [market, setMarket] = useState("Malaysia");
   const [domain, setDomain] = useState<ComplianceDomain>("food");
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [extractionResult, setExtractionResult] = useState<ExtractIngredientsResult | null>(null);
   const [extractionError, setExtractionError] = useState<string | null>(null);
+  const [fileImportMessage, setFileImportMessage] = useState<string | null>(null);
+  const [fileImportError, setFileImportError] = useState<string | null>(null);
+  const [isImportingFile, setIsImportingFile] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [report, setReport] = useState<ComplianceReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  const updateIngredientsInput = (value: string) => {
+    setIngredientsInput(value);
+    setProductName("");
+  };
+
+  const updateMarket = (value: string) => {
+    setMarket(value);
+    setProductName("");
+  };
+
+  const updateDomain = (value: ComplianceDomain) => {
+    setDomain(value);
+    setProductName("");
+  };
+
   const runScan = async () => {
     const ingredients = parseIngredients(ingredientsInput);
-
-    if (productName.trim().length === 0) {
-      setError("Product name is required before running a scan.");
-      return;
-    }
 
     if (ingredients.length === 0) {
       setError("Add at least one ingredient before running a scan.");
@@ -178,8 +207,17 @@ function AssistantPage() {
     setIsLoading(true);
 
     try {
+      const productNameForScan = buildInternalProductName({
+        productName,
+        domain,
+        market: market.trim(),
+        ingredients,
+      });
+
+      setProductName(productNameForScan);
+
       const nextReport = await analyzeProduct({
-        product_name: productName.trim(),
+        product_name: productNameForScan,
         ingredients,
         market: market.trim(),
         domain,
@@ -196,8 +234,11 @@ function AssistantPage() {
 
   const handleImageSelected = (file: File | null) => {
     setImageFile(file);
+    setProductName("");
     setExtractionResult(null);
     setExtractionError(null);
+    setFileImportMessage(null);
+    setFileImportError(null);
 
     if (imagePreviewUrl) {
       URL.revokeObjectURL(imagePreviewUrl);
@@ -219,15 +260,22 @@ function AssistantPage() {
       const imagePayload = await readImageAsBase64(imageFile);
       const extracted = await extractIngredientsFromImage({
         ...imagePayload,
-        product_name: productName.trim() || undefined,
         market: market.trim() || undefined,
         domain,
       });
+      const safeIngredients = sanitizeExtractedIngredients(extracted.ingredients);
+      const safeExtraction = { ...extracted, ingredients: safeIngredients };
 
-      setExtractionResult(extracted);
+      setExtractionResult(safeExtraction);
+      setFileImportMessage(null);
+      setFileImportError(null);
+      setReport(null);
+      setError(null);
+      setSubmitted(false);
 
-      if (extracted.ingredients.length > 0) {
-        setIngredientsInput(extracted.ingredients.join("\n"));
+      if (safeIngredients.length > 0) {
+        setIngredientsInput(safeIngredients.join("\n"));
+        setProductName("");
       }
     } catch (extractError) {
       setExtractionResult(null);
@@ -239,11 +287,40 @@ function AssistantPage() {
     }
   };
 
-  const useDemoExtraction = () => {
-    const demoResult = buildDemoExtractionResult(domain);
-    setExtractionError(null);
-    setExtractionResult(demoResult);
-    setIngredientsInput(demoResult.ingredients.join("\n"));
+  const importIngredientFile = async (file: File | null) => {
+    if (!file) {
+      return;
+    }
+
+    setIsImportingFile(true);
+    setFileImportError(null);
+    setFileImportMessage(null);
+
+    try {
+      const importedIngredients = await readIngredientsFromFile(file);
+
+      if (importedIngredients.length === 0) {
+        setFileImportError("No ingredients were found in the selected file.");
+        return;
+      }
+
+      setIngredientsInput(importedIngredients.join("\n"));
+      setProductName("");
+      setExtractionResult(null);
+      setExtractionError(null);
+      setReport(null);
+      setError(null);
+      setSubmitted(false);
+      setFileImportMessage(
+        `Imported ${importedIngredients.length} ingredient(s) from the first ${MAX_IMPORTED_FILE_ROWS} row(s)/line(s).`,
+      );
+    } catch (importError) {
+      setFileImportError(
+        importError instanceof Error ? importError.message : "Unable to import ingredients.",
+      );
+    } finally {
+      setIsImportingFile(false);
+    }
   };
 
   const loadSample = (sample: (typeof SAMPLE_SCANS)[number]) => {
@@ -267,6 +344,13 @@ function AssistantPage() {
               setSubmitted(false);
               setReport(null);
               setError(null);
+              setProductName("");
+              setIngredientsInput("");
+              setExtractionResult(null);
+              setExtractionError(null);
+              setFileImportMessage(null);
+              setFileImportError(null);
+              handleImageSelected(null);
             }}
             className="group flex w-full items-center justify-between rounded-xl border border-hairline bg-surface px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-surface-elevated"
           >
@@ -324,7 +408,6 @@ function AssistantPage() {
               >
                 <IntroHeader />
                 <ScanForm
-                  productName={productName}
                   ingredientsInput={ingredientsInput}
                   market={market}
                   domain={domain}
@@ -332,15 +415,17 @@ function AssistantPage() {
                   isExtracting={isExtracting}
                   error={error}
                   extractionError={extractionError}
+                  fileImportMessage={fileImportMessage}
+                  fileImportError={fileImportError}
                   imagePreviewUrl={imagePreviewUrl}
                   extractionResult={extractionResult}
-                  onProductNameChange={setProductName}
-                  onIngredientsChange={setIngredientsInput}
-                  onMarketChange={setMarket}
-                  onDomainChange={setDomain}
+                  isImportingFile={isImportingFile}
+                  onIngredientsChange={updateIngredientsInput}
+                  onMarketChange={updateMarket}
+                  onDomainChange={updateDomain}
                   onImageSelected={handleImageSelected}
                   onExtractImage={runImageExtraction}
-                  onUseDemoExtraction={useDemoExtraction}
+                  onImportIngredientFile={importIngredientFile}
                   onSubmit={runScan}
                 />
               </motion.div>
@@ -378,9 +463,27 @@ function AssistantPage() {
                           transition={{ duration: 0.25 }}
                         >
                           {tab === "summary" && <SummaryTab report={report} />}
-                          {tab === "blockers" && <EntryList entries={report.blockers} emptyText="No blockers found for this scan." tone="blocker" />}
-                          {tab === "warnings" && <EntryList entries={report.warnings} emptyText="No warnings found for this scan." tone="warning" />}
-                          {tab === "safe" && <EntryList entries={report.safe} emptyText="No low-risk ingredients were returned for this scan." tone="safe" />}
+                          {tab === "blockers" && (
+                            <EntryList
+                              entries={report.blockers}
+                              emptyText="No blockers found for this scan."
+                              tone="blocker"
+                            />
+                          )}
+                          {tab === "warnings" && (
+                            <EntryList
+                              entries={report.warnings}
+                              emptyText="No warnings found for this scan."
+                              tone="warning"
+                            />
+                          )}
+                          {tab === "safe" && (
+                            <EntryList
+                              entries={report.safe}
+                              emptyText="No low-risk ingredients were returned for this scan."
+                              tone="safe"
+                            />
+                          )}
                           {tab === "history" && <HistoryTab history={report.history ?? []} />}
                         </motion.div>
                       </AnimatePresence>
@@ -393,13 +496,11 @@ function AssistantPage() {
                 <div className="fixed inset-x-0 bottom-0 border-t border-hairline bg-background/85 backdrop-blur-xl">
                   <div className="mx-auto max-w-4xl px-4 py-3 sm:py-4 md:px-10">
                     <MiniScanBar
-                      productName={productName}
                       market={market}
                       domain={domain}
                       isLoading={isLoading}
-                      onProductNameChange={setProductName}
-                      onMarketChange={setMarket}
-                      onDomainChange={setDomain}
+                      onMarketChange={updateMarket}
+                      onDomainChange={updateDomain}
                       onSubmit={runScan}
                     />
                   </div>
@@ -418,6 +519,53 @@ function parseIngredients(value: string): string[] {
     .split(/\r?\n|,/)
     .map((ingredient) => ingredient.trim())
     .filter(Boolean);
+}
+
+function sanitizeExtractedIngredients(ingredients: unknown): string[] {
+  const ingredientList = Array.isArray(ingredients) ? ingredients : [];
+
+  return Array.from(
+    new Set(
+      ingredientList
+        .filter((ingredient): ingredient is string => typeof ingredient === "string")
+        .map((ingredient) => ingredient.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+async function readIngredientsFromFile(file: File): Promise<string[]> {
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+
+  if (["txt", "csv", "tsv"].includes(extension)) {
+    const text = await file.text();
+    const firstLines = text.split(/\r?\n/).slice(0, MAX_IMPORTED_FILE_ROWS).join("\n");
+
+    return parseIngredients(firstLines);
+  }
+
+  if (extension === "xlsx") {
+    const readXlsxFile = (await import("read-excel-file/browser")).default;
+    const rows = await readXlsxFile(file);
+    const text = rows
+      .slice(0, MAX_IMPORTED_FILE_ROWS)
+      .flatMap((row) => row.filter((cell) => cell !== null && cell !== undefined))
+      .map((cell) => String(cell).trim())
+      .filter(Boolean)
+      .join("\n");
+
+    return parseIngredients(text);
+  }
+
+  if (extension === "docx") {
+    const mammoth = await import("mammoth");
+    const result = await mammoth.default.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+    const firstLines = result.value.split(/\r?\n/).slice(0, MAX_IMPORTED_FILE_ROWS).join("\n");
+
+    return parseIngredients(firstLines);
+  }
+
+  throw new Error("Supported files: Excel (.xlsx), Word (.docx), CSV, TSV, and TXT.");
 }
 
 function readImageAsBase64(file: File): Promise<{ image_base64: string; mime_type: string }> {
@@ -453,7 +601,11 @@ function statusToVerdict(status: OverallStatus): "halal" | "haram" | "mushbooh" 
   return "halal";
 }
 
-function getReadinessCopy(status: OverallStatus): { title: string; description: string; action: string } {
+function getReadinessCopy(status: OverallStatus): {
+  title: string;
+  description: string;
+  action: string;
+} {
   if (status === "Not Ready") {
     return {
       title: "Certification blocker detected",
@@ -468,7 +620,8 @@ function getReadinessCopy(status: OverallStatus): { title: string; description: 
       title: "Needs technical review",
       description:
         "No hard blockers were found, but the product still has medium-risk ingredients that should be reviewed before submission.",
-      action: "Collect supporting documents and ask a halal assurance reviewer to confirm the risk position.",
+      action:
+        "Collect supporting documents and ask a halal assurance reviewer to confirm the risk position.",
     };
   }
 
@@ -476,7 +629,8 @@ function getReadinessCopy(status: OverallStatus): { title: string; description: 
     title: "Low-risk scan result",
     description:
       "No blocker or warning ingredients were found in this scan, based on the current Neo4j knowledge graph.",
-    action: "Keep ingredient documentation ready and continue with the normal pre-certification workflow.",
+    action:
+      "Keep ingredient documentation ready and continue with the normal pre-certification workflow.",
   };
 }
 
@@ -519,52 +673,125 @@ function IntroHeader() {
         <span className="italic text-gradient-jade">certification review.</span>
       </h1>
       <p className="mx-auto mt-3 max-w-2xl text-center text-sm leading-relaxed text-muted-foreground">
-        Enter a product name, ingredient list, and target market. HalalIQ will call your Edge
-        Function, group the risks, save the scan, and return report history.
+        Upload a label or enter ingredients, choose a target country, and let HalalIQ group the
+        risks, evidence needs, and saved report history.
       </p>
     </div>
   );
 }
 
+function MarketCoverageChart({
+  activeMarket,
+  onMarketChange,
+}: {
+  activeMarket: string;
+  onMarketChange: (market: string) => void;
+}) {
+  return (
+    <div className="mt-4 rounded-2xl border border-hairline bg-background/35 p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-jade">
+            <ChartNoAxesColumnIncreasing className="h-3.5 w-3.5" />
+            Country coverage
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Markets currently modeled for MVP readiness checks.
+          </p>
+        </div>
+        <span className="w-fit rounded-full border border-jade/20 bg-jade/5 px-3 py-1 text-[11px] text-jade">
+          {MARKET_OPTIONS.length} markets
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {MARKET_OPTIONS.map((option) => {
+          const isActive = option.value === activeMarket;
+
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onMarketChange(option.value)}
+              className={`rounded-xl border p-3 text-left transition-colors ${
+                isActive
+                  ? "border-jade/40 bg-jade/10"
+                  : "border-hairline bg-surface/60 hover:bg-surface"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium">{option.label}</div>
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">{option.authority}</div>
+                </div>
+                <div className="text-xs text-jade">{option.coverage}%</div>
+              </div>
+              <div className="mt-3 h-1.5 rounded-full bg-background">
+                <div
+                  className="h-full rounded-full bg-jade"
+                  style={{ width: `${option.coverage}%` }}
+                />
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                {option.focus}
+              </p>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ScanForm({
-  productName,
   ingredientsInput,
   market,
   domain,
   isLoading,
   isExtracting,
+  isImportingFile,
   error,
   extractionError,
+  fileImportMessage,
+  fileImportError,
   imagePreviewUrl,
   extractionResult,
-  onProductNameChange,
   onIngredientsChange,
   onMarketChange,
   onDomainChange,
   onImageSelected,
   onExtractImage,
-  onUseDemoExtraction,
+  onImportIngredientFile,
   onSubmit,
 }: {
-  productName: string;
   ingredientsInput: string;
   market: string;
   domain: ComplianceDomain;
   isLoading: boolean;
   isExtracting: boolean;
+  isImportingFile: boolean;
   error: string | null;
   extractionError: string | null;
+  fileImportMessage: string | null;
+  fileImportError: string | null;
   imagePreviewUrl: string | null;
   extractionResult: ExtractIngredientsResult | null;
-  onProductNameChange: (value: string) => void;
   onIngredientsChange: (value: string) => void;
   onMarketChange: (value: string) => void;
   onDomainChange: (value: ComplianceDomain) => void;
   onImageSelected: (file: File | null) => void;
   onExtractImage: () => void;
-  onUseDemoExtraction: () => void;
+  onImportIngredientFile: (file: File | null) => void;
   onSubmit: () => void;
 }) {
+  const reviewedIngredientCount = parseIngredients(ingredientsInput).length;
+  const hasExtractedIngredients = Boolean(
+    extractionResult && extractionResult.ingredients.length > 0,
+  );
+  const scanButtonText = hasExtractedIngredients
+    ? "Scan reviewed ingredients"
+    : "Run compliance scan";
+
   return (
     <form
       onSubmit={(event) => {
@@ -573,19 +800,7 @@ function ScanForm({
       }}
       className="mt-10 rounded-[2rem] border border-hairline bg-surface p-4 shadow-elegant sm:p-6"
     >
-      <div className="grid gap-4 lg:grid-cols-[1.3fr_0.8fr_1fr]">
-        <label className="space-y-2">
-          <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            Product name
-          </span>
-          <input
-            value={productName}
-            onChange={(event) => onProductNameChange(event.target.value)}
-            placeholder="Chocolate Wafer Biscuit"
-            className="w-full rounded-2xl border border-hairline bg-background/50 px-4 py-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-jade/50"
-          />
-        </label>
-
+      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <label className="space-y-2">
           <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
             Domain
@@ -608,23 +823,38 @@ function ScanForm({
 
         <label className="space-y-2">
           <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            Market
+            Target country
           </span>
-          <input
+          <select
             value={market}
             onChange={(event) => onMarketChange(event.target.value)}
-            placeholder="Malaysia"
-            className="w-full rounded-2xl border border-hairline bg-background/50 px-4 py-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-jade/50"
-          />
+            className="w-full rounded-2xl border border-hairline bg-background/50 px-4 py-3 text-sm outline-none transition-colors focus:border-jade/50"
+          >
+            {MARKET_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            {MARKET_OPTIONS.find((option) => option.value === market)?.authority}
+          </p>
         </label>
       </div>
+
+      <MarketCoverageChart activeMarket={market} onMarketChange={onMarketChange} />
 
       <div className="mt-4 rounded-2xl border border-dashed border-jade/30 bg-jade/5 p-4">
         <div className="flex flex-col gap-4 md:flex-row md:items-start">
           <div className="flex-1">
-            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-jade">
-              <Camera className="h-3.5 w-3.5" />
-              Scan from label photo
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-jade">
+                <Camera className="h-3.5 w-3.5" />
+                Scan from label photo
+              </div>
+              <span className="rounded-full border border-jade/20 bg-background/60 px-2.5 py-1 text-[10px] text-jade">
+                Optional fast path
+              </span>
             </div>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               Upload or take a photo of the ingredient label. HalalIQ extracts text only, then you
@@ -655,20 +885,16 @@ function ScanForm({
                 )}
                 Extract ingredients
               </button>
-              <button
-                type="button"
-                onClick={onUseDemoExtraction}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background"
-              >
-                <Sparkles className="h-4 w-4 text-jade" />
-                Use demo OCR
-              </button>
             </div>
           </div>
 
           {imagePreviewUrl && (
             <div className="overflow-hidden rounded-xl border border-hairline bg-background/50 md:w-40">
-              <img src={imagePreviewUrl} alt="Selected ingredient label preview" className="h-36 w-full object-cover" />
+              <img
+                src={imagePreviewUrl}
+                alt="Selected ingredient label preview"
+                className="h-36 w-full object-cover"
+              />
             </div>
           )}
         </div>
@@ -676,11 +902,11 @@ function ScanForm({
         {extractionError && <ErrorCard message={extractionError} compact />}
 
         {extractionResult && (
-          <div className="mt-4 grid gap-3 rounded-2xl border border-hairline bg-background/45 p-4 md:grid-cols-[1fr_0.9fr]">
+          <div className="mt-4 grid gap-3 rounded-2xl border border-jade/25 bg-background/45 p-4 md:grid-cols-[1fr_0.9fr]">
             <div>
               <div className="flex items-center gap-2 text-xs text-jade">
                 <ClipboardCheck className="h-3.5 w-3.5" />
-                Extracted ingredients
+                Extracted ingredients applied to editor
               </div>
               <p className="mt-2 text-sm leading-relaxed text-foreground/85">
                 {extractionResult.ingredients.length > 0
@@ -691,6 +917,10 @@ function ScanForm({
                 Confidence: {Math.round(extractionResult.confidence * 100)}% - Review required:{" "}
                 {extractionResult.needs_review ? "Yes" : "No"}
               </p>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                Step 2 is ready: check the editable ingredient list below, fix anything OCR missed,
+                then scan the reviewed list.
+              </p>
             </div>
             <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
               {extractionResult.visual_warning && (
@@ -700,7 +930,10 @@ function ScanForm({
               )}
               {extractionResult.warnings.length > 0 ? (
                 extractionResult.warnings.map((warning) => (
-                  <div key={warning} className="rounded-xl border border-hairline bg-surface/80 p-3">
+                  <div
+                    key={warning}
+                    className="rounded-xl border border-hairline bg-surface/80 p-3"
+                  >
                     {warning}
                   </div>
                 ))
@@ -715,8 +948,38 @@ function ScanForm({
       </div>
 
       <label className="mt-4 block space-y-2">
-        <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          Ingredients
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              Ingredients
+            </span>
+            <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
+              {hasExtractedIngredients
+                ? `${reviewedIngredientCount} ingredient(s) are loaded from the label photo. Edit this list before scanning if needed.`
+                : "Type ingredients manually, paste a label list, or import them from a file."}
+            </span>
+          </div>
+          <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background">
+            {isImportingFile ? (
+              <Loader2 className="h-4 w-4 animate-spin text-jade" />
+            ) : (
+              <FileUp className="h-4 w-4 text-jade" />
+            )}
+            Insert file
+            <input
+              type="file"
+              accept=".xlsx,.docx,.csv,.tsv,.txt"
+              onChange={(event) => {
+                onImportIngredientFile(event.target.files?.[0] ?? null);
+                event.target.value = "";
+              }}
+              className="sr-only"
+            />
+          </label>
+        </div>
+        <span className="block text-[11px] leading-relaxed text-muted-foreground">
+          Supports Excel .xlsx, Word .docx, CSV, TSV, and TXT. The first {MAX_IMPORTED_FILE_ROWS}{" "}
+          rows/lines are imported for review.
         </span>
         <textarea
           value={ingredientsInput}
@@ -726,6 +989,14 @@ function ScanForm({
           className="w-full resize-none rounded-2xl border border-hairline bg-background/50 px-4 py-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-muted-foreground focus:border-jade/50"
         />
       </label>
+
+      {fileImportMessage && (
+        <div className="mt-3 rounded-xl border border-jade/20 bg-jade/5 p-3 text-xs leading-relaxed text-jade">
+          {fileImportMessage}
+        </div>
+      )}
+
+      {fileImportError && <ErrorCard message={fileImportError} compact />}
 
       {error && <ErrorCard message={error} compact />}
 
@@ -739,8 +1010,12 @@ function ScanForm({
           disabled={isLoading}
           className="inline-flex items-center justify-center gap-2 rounded-2xl bg-foreground px-5 py-3 text-sm font-medium text-background transition-all hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
-          Run compliance scan
+          {isLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ArrowUp className="h-4 w-4" />
+          )}
+          {scanButtonText}
         </button>
       </div>
     </form>
@@ -801,7 +1076,9 @@ function ReportHeader({
         <div className="relative mt-5 grid gap-3 rounded-2xl border border-hairline bg-background/35 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
           <div>
             <div className="text-sm font-medium">{readiness.title}</div>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{readiness.description}</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {readiness.description}
+            </p>
           </div>
           <div className="rounded-xl border border-jade/20 bg-jade/5 px-3 py-2 text-xs leading-relaxed text-jade sm:max-w-[220px]">
             {readiness.action}
@@ -966,7 +1243,10 @@ function CategoryPreview({
           <p className="text-sm text-muted-foreground">{emptyText}</p>
         ) : (
           entries.slice(0, 3).map((entry) => (
-            <div key={`${title}-${entry.ingredient}-${entry.risk}`} className="rounded-xl border border-hairline bg-background/35 p-3">
+            <div
+              key={`${title}-${entry.ingredient}-${entry.risk}`}
+              className="rounded-xl border border-hairline bg-background/35 p-3"
+            >
               <div className="flex items-center justify-between gap-3">
                 <span className="font-display text-base">{entry.ingredient}</span>
                 <span className={`text-xs ${styles.icon}`}>{entry.risk}</span>
@@ -1022,10 +1302,13 @@ function EntryList({
               {heading}
             </div>
             <p className="mt-1 text-sm leading-relaxed text-foreground/80">
-              {styles.action}. Review each ingredient below with its evidence needs and market scope.
+              {styles.action}. Review each ingredient below with its evidence needs and market
+              scope.
             </p>
           </div>
-          <span className={`w-fit rounded-full border px-3 py-1 text-xs font-medium ${styles.badge}`}>
+          <span
+            className={`w-fit rounded-full border px-3 py-1 text-xs font-medium ${styles.badge}`}
+          >
             {entries.length} ingredient(s)
           </span>
         </div>
@@ -1147,7 +1430,10 @@ function InfoPanel({
       <div className="mt-3 flex flex-wrap gap-1.5">
         {values.length > 0 ? (
           values.map((value) => (
-            <span key={value} className="rounded-full border border-hairline bg-background/40 px-2.5 py-1 text-muted-foreground">
+            <span
+              key={value}
+              className="rounded-full border border-hairline bg-background/40 px-2.5 py-1 text-muted-foreground"
+            >
               {value}
             </span>
           ))
@@ -1217,7 +1503,9 @@ function HistoryFullCard({ item }: { item: ReportHistoryItem }) {
     <div className="rounded-2xl border border-hairline bg-surface p-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <div className="text-sm font-medium">{latestReport?.product_name ?? "Previous submission"}</div>
+          <div className="text-sm font-medium">
+            {latestReport?.product_name ?? "Previous submission"}
+          </div>
           <div className="mt-1 text-xs text-muted-foreground">Submission ID: {item.id}</div>
         </div>
         <div className="text-xs text-muted-foreground">{formatDate(item.created_at)}</div>
@@ -1233,7 +1521,9 @@ function HistoryFullCard({ item }: { item: ReportHistoryItem }) {
 
 function ErrorCard({ message, compact = false }: { message: string; compact?: boolean }) {
   return (
-    <div className={`rounded-2xl border border-verdict-haram/25 bg-verdict-haram/5 ${compact ? "mt-4 p-4" : "mt-5 p-5"}`}>
+    <div
+      className={`rounded-2xl border border-verdict-haram/25 bg-verdict-haram/5 ${compact ? "mt-4 p-4" : "mt-5 p-5"}`}
+    >
       <div className="flex items-start gap-3">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-verdict-haram" />
         <div>
@@ -1253,7 +1543,8 @@ function LoadingCard() {
         <div>
           <div className="text-sm font-medium">Running product-level analysis</div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Calling the Supabase Edge Function, querying Neo4j, saving the report, and loading history.
+            Calling the Supabase Edge Function, querying Neo4j, saving the report, and loading
+            history.
           </p>
         </div>
       </div>
@@ -1288,20 +1579,16 @@ function ActionBar({ report }: { report: ComplianceReport }) {
 }
 
 function MiniScanBar({
-  productName,
   market,
   domain,
   isLoading,
-  onProductNameChange,
   onMarketChange,
   onDomainChange,
   onSubmit,
 }: {
-  productName: string;
   market: string;
   domain: ComplianceDomain;
   isLoading: boolean;
-  onProductNameChange: (value: string) => void;
   onMarketChange: (value: string) => void;
   onDomainChange: (value: ComplianceDomain) => void;
   onSubmit: () => void;
@@ -1312,18 +1599,19 @@ function MiniScanBar({
         event.preventDefault();
         onSubmit();
       }}
-      className="grid gap-2 sm:grid-cols-[1fr_180px_190px_auto]"
+      className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]"
     >
-      <input
-        value={productName}
-        onChange={(event) => onProductNameChange(event.target.value)}
-        className="rounded-xl border border-hairline bg-surface px-3 py-2 text-sm outline-none focus:border-jade/50"
-      />
-      <input
+      <select
         value={market}
         onChange={(event) => onMarketChange(event.target.value)}
         className="rounded-xl border border-hairline bg-surface px-3 py-2 text-sm outline-none focus:border-jade/50"
-      />
+      >
+        {MARKET_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
       <select
         value={domain}
         onChange={(event) => onDomainChange(event.target.value as ComplianceDomain)}
