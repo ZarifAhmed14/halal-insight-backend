@@ -14,17 +14,17 @@ import { Footer } from "@/components/site/Footer";
 export const Route = createFileRoute("/transparency")({
   head: () => ({
     meta: [
-      { title: "Transparency & Methodology - HalalIQ" },
+      { title: "Transparency & Methodology - Halal Intelligence" },
       {
         name: "description",
         content:
-          "How HalalIQ validates inputs, normalizes ingredients, queries a compliance graph, and produces audit-friendly halal readiness reports.",
+          "How Halal Intelligence validates inputs, normalizes ingredients, queries a compliance graph, and produces audit-friendly halal readiness reports.",
       },
-      { property: "og:title", content: "HalalIQ Transparency & Methodology" },
+      { property: "og:title", content: "Halal Intelligence Transparency & Methodology" },
       {
         property: "og:description",
         content:
-          "A clear look at HalalIQ's graph-based halal pre-certification readiness workflow.",
+          "A clear look at Halal Intelligence's graph-based halal pre-certification readiness workflow.",
       },
     ],
   }),
@@ -36,7 +36,7 @@ const ARCHITECTURE_STEPS = [
     icon: FileSearch,
     title: "Input review",
     description:
-      "Users provide a product name, market, domain, and ingredients. Label-photo OCR is review-first so users can correct extraction mistakes before scanning.",
+      "Users provide a market, domain, and ingredients. Label-photo OCR is review-first so users can correct extraction mistakes before scanning.",
   },
   {
     icon: ShieldCheck,
@@ -54,30 +54,7 @@ const ARCHITECTURE_STEPS = [
     icon: Layers,
     title: "Readiness report",
     description:
-      "HalalIQ groups findings into blockers, warnings, and low-risk items, then saves the report for audit history.",
-  },
-];
-
-const DATA_LAYERS = [
-  {
-    title: "Supabase Postgres",
-    description:
-      "Stores products, submissions, target markets, normalized ingredients, and generated compliance reports.",
-  },
-  {
-    title: "Neo4j",
-    description:
-      "Stores the compliance knowledge graph used to evaluate ingredient, market, and domain relationships.",
-  },
-  {
-    title: "Supabase Edge Functions",
-    description:
-      "Runs the backend validation, normalization, graph querying, report generation, persistence, and image extraction endpoints.",
-  },
-  {
-    title: "React frontend",
-    description:
-      "Provides manual scans, label-photo review flow, domain selection, expandable risk details, and scan history.",
+      "Halal Intelligence groups findings into blockers, warnings, and low-risk items, then saves the report for audit history.",
   },
 ];
 
@@ -86,7 +63,7 @@ const SAFETY_PRINCIPLES = [
     icon: AlertTriangle,
     title: "Pre-certification, not a final fatwa",
     description:
-      "HalalIQ flags readiness risks and required evidence. Final certification remains with qualified halal authorities.",
+      "Halal Intelligence flags readiness risks and required evidence. Final certification remains with qualified halal authorities.",
   },
   {
     icon: ShieldCheck,
@@ -123,9 +100,9 @@ function TransparencyPage() {
           <span className="italic text-gradient-jade">reason behind every risk.</span>
         </h1>
         <p className="mt-6 max-w-2xl text-pretty text-muted-foreground">
-          HalalIQ is a B2B pre-certification readiness platform. It does not replace halal
-          authorities. It helps manufacturers find ingredient, market, and evidence gaps before
-          applying for certification.
+          Halal Intelligence is a B2B pre-certification readiness platform. It does not replace
+          halal authorities. It helps manufacturers find ingredient, market, and evidence gaps
+          before applying for certification.
         </p>
 
         <div className="mt-12 grid gap-px overflow-hidden rounded-3xl border border-hairline bg-hairline sm:mt-16 sm:grid-cols-2 md:grid-cols-4">
@@ -140,29 +117,7 @@ function TransparencyPage() {
           ))}
         </div>
 
-        <section className="mt-16 sm:mt-24">
-          <h2 className="font-display text-2xl sm:text-3xl">System layers</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            The MVP keeps compliance reasoning separate from storage and user experience, so the
-            platform can grow into food, cosmetics, pharmaceuticals, and export compliance without
-            turning into a black box.
-          </p>
-          <div className="mt-6 grid gap-3 md:grid-cols-2">
-            {DATA_LAYERS.map((layer) => (
-              <div key={layer.title} className="rounded-2xl border border-hairline bg-surface p-5">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <Database className="h-4 w-4 text-jade" />
-                  {layer.title}
-                </div>
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                  {layer.description}
-                </p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="mt-16 sm:mt-24">
+        <section id="safety" className="mt-16 sm:mt-24">
           <h2 className="font-display text-2xl sm:text-3xl">Safety principles</h2>
           <div className="mt-6 space-y-px overflow-hidden rounded-2xl border border-hairline bg-hairline">
             {SAFETY_PRINCIPLES.map((principle) => (

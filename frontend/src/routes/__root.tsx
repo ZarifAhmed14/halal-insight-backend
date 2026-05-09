@@ -29,27 +29,27 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
+      { title: "Halal Intelligence" },
       {
         name: "description",
         content:
-          "Halal Guide AI is a premium AI platform for making informed, halal-compliant decisions across finance, food, and lifestyle.",
+          "Halal Intelligence helps manufacturers review ingredients, evidence, and market readiness before halal certification.",
       },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
+      { property: "og:title", content: "Halal Intelligence" },
       {
         property: "og:description",
         content:
-          "Halal Guide AI is a premium AI platform for making informed, halal-compliant decisions across finance, food, and lifestyle.",
+          "Halal Intelligence helps manufacturers review ingredients, evidence, and market readiness before halal certification.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
-      { name: "twitter:title", content: "Lovable App" },
+      { name: "twitter:site", content: "@HalalIntelligence" },
+      { name: "twitter:title", content: "Halal Intelligence" },
       {
         name: "twitter:description",
         content:
-          "Halal Guide AI is a premium AI platform for making informed, halal-compliant decisions across finance, food, and lifestyle.",
+          "Halal Intelligence helps manufacturers review ingredients, evidence, and market readiness before halal certification.",
       },
       {
         property: "og:image",

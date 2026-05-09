@@ -1,17 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import readXlsxFile from "read-excel-file/browser";
 import {
   AlertTriangle,
   ArrowUp,
-  Bookmark,
   BadgeCheck,
   Camera,
-  ChartNoAxesColumnIncreasing,
-  CheckCircle2,
   ChevronDown,
   ClipboardCheck,
-  Copy,
   FileUp,
   FileText,
   History,
@@ -40,16 +37,16 @@ import {
 export const Route = createFileRoute("/assistant")({
   head: () => ({
     meta: [
-      { title: "Assistant - HalalIQ Product Readiness" },
+      { title: "Assistant - Halal Intelligence Product Readiness" },
       {
         name: "description",
         content:
           "Run a product-level halal pre-certification scan with ingredient risk groups, required documents, and scan history.",
       },
-      { property: "og:title", content: "HalalIQ Product Readiness Assistant" },
+      { property: "og:title", content: "Halal Intelligence Product Readiness Assistant" },
       {
         property: "og:description",
-        content: "Product-level halal readiness checks for B2B manufacturers.",
+        content: "Halal readiness checks for B2B manufacturers.",
       },
     ],
   }),
@@ -98,14 +95,14 @@ const MARKET_OPTIONS = [
   {
     value: "Malaysia",
     label: "Malaysia",
-    authority: "JAKIM",
+    authority: "Malaysia halal market",
     coverage: 92,
     focus: "Local halal certification readiness",
   },
   {
     value: "UAE",
     label: "UAE",
-    authority: "ESMA / MOIAT",
+    authority: "UAE export market",
     coverage: 82,
     focus: "Export documentation and market entry",
   },
@@ -488,8 +485,6 @@ function AssistantPage() {
                         </motion.div>
                       </AnimatePresence>
                     </div>
-
-                    <ActionBar report={report} />
                   </>
                 )}
 
@@ -521,6 +516,10 @@ function parseIngredients(value: string): string[] {
     .filter(Boolean);
 }
 
+function isImportHeader(value: string): boolean {
+  return ["ingredient", "ingredients", "item", "items"].includes(value.trim().toLowerCase());
+}
+
 function sanitizeExtractedIngredients(ingredients: unknown): string[] {
   const ingredientList = Array.isArray(ingredients) ? ingredients : [];
 
@@ -539,19 +538,23 @@ async function readIngredientsFromFile(file: File): Promise<string[]> {
 
   if (["txt", "csv", "tsv"].includes(extension)) {
     const text = await file.text();
-    const firstLines = text.split(/\r?\n/).slice(0, MAX_IMPORTED_FILE_ROWS).join("\n");
+    const firstLines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !isImportHeader(line))
+      .slice(0, MAX_IMPORTED_FILE_ROWS)
+      .join("\n");
 
     return parseIngredients(firstLines);
   }
 
   if (extension === "xlsx") {
-    const readXlsxFile = (await import("read-excel-file/browser")).default;
     const rows = await readXlsxFile(file);
     const text = rows
-      .slice(0, MAX_IMPORTED_FILE_ROWS)
       .flatMap((row) => row.filter((cell) => cell !== null && cell !== undefined))
       .map((cell) => String(cell).trim())
-      .filter(Boolean)
+      .filter((cell) => cell.length > 0 && !isImportHeader(cell))
+      .slice(0, MAX_IMPORTED_FILE_ROWS)
       .join("\n");
 
     return parseIngredients(text);
@@ -560,7 +563,12 @@ async function readIngredientsFromFile(file: File): Promise<string[]> {
   if (extension === "docx") {
     const mammoth = await import("mammoth");
     const result = await mammoth.default.extractRawText({ arrayBuffer: await file.arrayBuffer() });
-    const firstLines = result.value.split(/\r?\n/).slice(0, MAX_IMPORTED_FILE_ROWS).join("\n");
+    const firstLines = result.value
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !isImportHeader(line))
+      .slice(0, MAX_IMPORTED_FILE_ROWS)
+      .join("\n");
 
     return parseIngredients(firstLines);
   }
@@ -601,6 +609,40 @@ function statusToVerdict(status: OverallStatus): "halal" | "haram" | "mushbooh" 
   return "halal";
 }
 
+function getReadinessConfidence(status: OverallStatus): number {
+  if (status === "Not Ready") {
+    return 88;
+  }
+
+  if (status === "Needs Review") {
+    return 75;
+  }
+
+  return 92;
+}
+
+function simplifyReasoning(entry: ComplianceEntry): string {
+  const ingredient = entry.ingredient.toLowerCase();
+
+  if (ingredient.includes("e471")) {
+    return "E471 can come from plant or animal fat, so the supplier must prove the source.";
+  }
+
+  if (ingredient.includes("gelatin")) {
+    return "Gelatin is usually animal-derived, so the source and halal certificate must be checked.";
+  }
+
+  if (ingredient.includes("collagen")) {
+    return "Collagen is often animal-derived, so the product needs origin evidence before approval.";
+  }
+
+  if (ingredient.includes("carmine")) {
+    return "Carmine is an insect-derived color, so it needs special review and evidence.";
+  }
+
+  return entry.reasoning;
+}
+
 function getReadinessCopy(status: OverallStatus): {
   title: string;
   description: string;
@@ -611,7 +653,7 @@ function getReadinessCopy(status: OverallStatus): {
       title: "Certification blocker detected",
       description:
         "This product should not move into certification submission until the blocker ingredients are resolved or supported with stronger documentation.",
-      action: "Prioritize blocker review before preparing the submission pack.",
+      action: "Review blocker ingredients before preparing the submission pack.",
     };
   }
 
@@ -664,81 +706,14 @@ function getToneStyles(tone: "blocker" | "warning" | "safe") {
 function IntroHeader() {
   return (
     <div className="text-center">
-      <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-hairline bg-surface/60 px-3.5 py-1.5 text-xs text-muted-foreground backdrop-blur">
-        <Sparkles className="h-3 w-3 text-jade" />
-        Product-level halal readiness
-      </div>
       <h1 className="font-display text-balance text-3xl font-light leading-tight sm:text-4xl md:text-5xl">
         Scan a product before{" "}
-        <span className="italic text-gradient-jade">certification review.</span>
+        <span className="italic text-gradient-jade">certification review</span>
       </h1>
       <p className="mx-auto mt-3 max-w-2xl text-center text-sm leading-relaxed text-muted-foreground">
-        Upload a label or enter ingredients, choose a target country, and let HalalIQ group the
-        risks, evidence needs, and saved report history.
+        Upload a label or enter ingredients, choose a target country, and let Halal Intelligence
+        group the risks, evidence needs, and saved report history
       </p>
-    </div>
-  );
-}
-
-function MarketCoverageChart({
-  activeMarket,
-  onMarketChange,
-}: {
-  activeMarket: string;
-  onMarketChange: (market: string) => void;
-}) {
-  return (
-    <div className="mt-4 rounded-2xl border border-hairline bg-background/35 p-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-jade">
-            <ChartNoAxesColumnIncreasing className="h-3.5 w-3.5" />
-            Country coverage
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Markets currently modeled for MVP readiness checks.
-          </p>
-        </div>
-        <span className="w-fit rounded-full border border-jade/20 bg-jade/5 px-3 py-1 text-[11px] text-jade">
-          {MARKET_OPTIONS.length} markets
-        </span>
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {MARKET_OPTIONS.map((option) => {
-          const isActive = option.value === activeMarket;
-
-          return (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => onMarketChange(option.value)}
-              className={`rounded-xl border p-3 text-left transition-colors ${
-                isActive
-                  ? "border-jade/40 bg-jade/10"
-                  : "border-hairline bg-surface/60 hover:bg-surface"
-              }`}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-medium">{option.label}</div>
-                  <div className="mt-0.5 text-[11px] text-muted-foreground">{option.authority}</div>
-                </div>
-                <div className="text-xs text-jade">{option.coverage}%</div>
-              </div>
-              <div className="mt-3 h-1.5 rounded-full bg-background">
-                <div
-                  className="h-full rounded-full bg-jade"
-                  style={{ width: `${option.coverage}%` }}
-                />
-              </div>
-              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                {option.focus}
-              </p>
-            </button>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -788,6 +763,11 @@ function ScanForm({
   const hasExtractedIngredients = Boolean(
     extractionResult && extractionResult.ingredients.length > 0,
   );
+  const preScanConfidence = extractionResult
+    ? Math.max(55, Math.round(extractionResult.confidence * 100))
+    : reviewedIngredientCount > 0
+      ? 75
+      : 0;
   const scanButtonText = hasExtractedIngredients
     ? "Scan reviewed ingredients"
     : "Run compliance scan";
@@ -842,8 +822,6 @@ function ScanForm({
         </label>
       </div>
 
-      <MarketCoverageChart activeMarket={market} onMarketChange={onMarketChange} />
-
       <div className="mt-4 rounded-2xl border border-dashed border-jade/30 bg-jade/5 p-4">
         <div className="flex flex-col gap-4 md:flex-row md:items-start">
           <div className="flex-1">
@@ -857,10 +835,10 @@ function ScanForm({
               </span>
             </div>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              Upload or take a photo of the ingredient label. HalalIQ extracts text only, then you
-              review and edit the ingredient list before running the compliance scan.
+              Upload or take a photo of the ingredient label. Halal Intelligence extracts text only,
+              then you review and edit the ingredient list before running the compliance scan.
             </p>
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background">
                 <Camera className="h-4 w-4 text-jade" />
                 Choose image
@@ -872,11 +850,28 @@ function ScanForm({
                   className="sr-only"
                 />
               </label>
+              <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background">
+                {isImportingFile ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-jade" />
+                ) : (
+                  <FileUp className="h-4 w-4 text-jade" />
+                )}
+                Insert file
+                <input
+                  type="file"
+                  accept=".xlsx,.docx,.csv,.tsv,.txt"
+                  onChange={(event) => {
+                    onImportIngredientFile(event.target.files?.[0] ?? null);
+                    event.target.value = "";
+                  }}
+                  className="sr-only"
+                />
+              </label>
               <button
                 type="button"
                 onClick={onExtractImage}
                 disabled={isExtracting || !imagePreviewUrl}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-foreground px-4 py-2.5 text-sm font-medium text-background transition-all hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-jade/25 bg-jade/10 px-4 py-2.5 text-sm font-medium text-jade transition-colors hover:bg-jade/15 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isExtracting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -924,7 +919,7 @@ function ScanForm({
             </div>
             <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
               {extractionResult.visual_warning && (
-                <div className="rounded-xl border border-verdict-mushbooh/25 bg-verdict-mushbooh/10 p-3 text-foreground/80">
+                <div className="rounded-xl border border-verdict-mushbooh/25 bg-verdict-mushbooh/10 px-3 py-2 text-[11px] text-foreground/80">
                   {extractionResult.visual_warning}
                 </div>
               )}
@@ -932,13 +927,13 @@ function ScanForm({
                 extractionResult.warnings.map((warning) => (
                   <div
                     key={warning}
-                    className="rounded-xl border border-hairline bg-surface/80 p-3"
+                    className="rounded-xl border border-hairline bg-surface/80 px-3 py-2"
                   >
                     {warning}
                   </div>
                 ))
               ) : (
-                <div className="rounded-xl border border-hairline bg-surface/80 p-3">
+                <div className="rounded-xl border border-hairline bg-surface/80 px-3 py-2">
                   Review the editable ingredient box below before scanning.
                 </div>
               )}
@@ -959,23 +954,6 @@ function ScanForm({
                 : "Type ingredients manually, paste a label list, or import them from a file."}
             </span>
           </div>
-          <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background">
-            {isImportingFile ? (
-              <Loader2 className="h-4 w-4 animate-spin text-jade" />
-            ) : (
-              <FileUp className="h-4 w-4 text-jade" />
-            )}
-            Insert file
-            <input
-              type="file"
-              accept=".xlsx,.docx,.csv,.tsv,.txt"
-              onChange={(event) => {
-                onImportIngredientFile(event.target.files?.[0] ?? null);
-                event.target.value = "";
-              }}
-              className="sr-only"
-            />
-          </label>
         </div>
         <span className="block text-[11px] leading-relaxed text-muted-foreground">
           Supports Excel .xlsx, Word .docx, CSV, TSV, and TXT. The first {MAX_IMPORTED_FILE_ROWS}{" "}
@@ -1000,25 +978,76 @@ function ScanForm({
 
       {error && <ErrorCard message={error} compact />}
 
-      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          The frontend sends normalized-ready raw input to Supabase; validation and normalization
-          still happen defensively in the Edge Function.
-        </p>
+      <PreScanConfidenceSignal
+        confidence={preScanConfidence}
+        ingredientCount={reviewedIngredientCount}
+        isLoading={isLoading}
+      />
+
+      <div className="mt-5 flex justify-center">
         <button
           type="submit"
           disabled={isLoading}
-          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-foreground px-5 py-3 text-sm font-medium text-background transition-all hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-w-[240px] items-center justify-center gap-2 rounded-2xl border border-hairline bg-background/60 px-8 py-4 text-base font-semibold transition-all hover:scale-[1.02] hover:bg-background disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[280px]"
         >
           {isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-5 w-5 animate-spin" />
           ) : (
-            <ArrowUp className="h-4 w-4" />
+            <ArrowUp className="h-5 w-5" />
           )}
           {scanButtonText}
         </button>
       </div>
     </form>
+  );
+}
+
+function PreScanConfidenceSignal({
+  confidence,
+  ingredientCount,
+  isLoading,
+}: {
+  confidence: number;
+  ingredientCount: number;
+  isLoading: boolean;
+}) {
+  const activeBlocks = Math.round((confidence / 100) * 12);
+
+  return (
+    <div className="mt-5 rounded-2xl border border-hairline bg-background/35 p-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+            Confidence signal
+          </div>
+          <div className="mt-2 flex items-end gap-2">
+            <span className="font-display text-3xl font-light text-foreground">
+              {confidence || "--"}
+            </span>
+            <span className="mb-1 text-xs text-muted-foreground">/ 100</span>
+          </div>
+        </div>
+        <div className="flex-1">
+          <div className="grid grid-cols-12 gap-1">
+            {Array.from({ length: 12 }).map((_, index) => (
+              <div
+                key={index}
+                className={`h-7 rounded-md ${
+                  index < activeBlocks ? "bg-jade/80" : "bg-foreground/5"
+                }`}
+              />
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+            {isLoading
+              ? "Running compliance scan and building the readiness decision"
+              : ingredientCount > 0
+                ? `Input confidence based on ${ingredientCount} reviewed ingredient(s)`
+                : "Add ingredients to generate a confidence signal before scanning"}
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1038,6 +1067,7 @@ function ReportHeader({
   onEdit: () => void;
 }) {
   const readiness = report ? getReadinessCopy(report.overall_status) : null;
+  const confidence = report ? getReadinessConfidence(report.overall_status) : null;
 
   return (
     <div className="relative overflow-hidden rounded-[2rem] border border-hairline bg-surface p-5 shadow-elegant sm:p-6">
@@ -1054,6 +1084,12 @@ function ReportHeader({
           <p className="mt-1 text-sm text-muted-foreground">
             {getDomainLabel(domain)} analysis for target market: {market}
           </p>
+          {confidence && (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-jade/25 bg-jade/5 px-3 py-1.5 text-xs text-jade">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Readiness Decision: {report?.overall_status} - {confidence}% Confidence
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -1132,6 +1168,7 @@ function TabStrip({
 
 function SummaryTab({ report }: { report: ComplianceReport }) {
   const readiness = getReadinessCopy(report.overall_status);
+  const confidence = getReadinessConfidence(report.overall_status);
   const cards = [
     {
       label: "Ingredients",
@@ -1168,6 +1205,14 @@ function SummaryTab({ report }: { report: ComplianceReport }) {
             <h2 className="font-display mt-3 text-3xl font-light leading-tight sm:text-4xl">
               {report.overall_status}
             </h2>
+            <div className="mt-3 max-w-sm rounded-full border border-jade/25 bg-jade/5 p-1">
+              <div
+                className="rounded-full bg-jade px-3 py-1 text-[11px] font-medium text-background"
+                style={{ width: `${confidence}%` }}
+              >
+                {confidence}% confidence
+              </div>
+            </div>
             <p className="mt-3 text-sm leading-relaxed text-foreground/80">
               {readiness.description}
             </p>
@@ -1252,7 +1297,7 @@ function CategoryPreview({
                 <span className={`text-xs ${styles.icon}`}>{entry.risk}</span>
               </div>
               <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                {entry.reasoning}
+                {simplifyReasoning(entry)}
               </p>
             </div>
           ))
@@ -1302,8 +1347,8 @@ function EntryList({
               {heading}
             </div>
             <p className="mt-1 text-sm leading-relaxed text-foreground/80">
-              {styles.action}. Review each ingredient below with its evidence needs and market
-              scope.
+              {styles.action}. Click an ingredient to see simple reasoning, evidence needs, and
+              market scope.
             </p>
           </div>
           <span
@@ -1379,7 +1424,9 @@ function ExpandableIngredientFinding({
                 <ScrollText className="h-3.5 w-3.5" />
                 Risk rationale
               </div>
-              <p className="mt-2 text-sm leading-[1.8] text-foreground/85">{entry.reasoning}</p>
+              <p className="mt-2 text-sm leading-[1.8] text-foreground/85">
+                {simplifyReasoning(entry)}
+              </p>
             </div>
 
             <div className="grid gap-0 text-xs md:grid-cols-3">
@@ -1543,36 +1590,12 @@ function LoadingCard() {
         <div>
           <div className="text-sm font-medium">Running product-level analysis</div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Calling the Supabase Edge Function, querying Neo4j, saving the report, and loading
-            history.
+            Building confidence from the backend scan, compliance graph, saved report, and history
           </p>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-background">
+            <div className="h-full w-3/4 animate-pulse rounded-full bg-jade" />
+          </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function ActionBar({ report }: { report: ComplianceReport }) {
-  const copyReport = async () => {
-    await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
-  };
-
-  return (
-    <div className="mt-6 flex items-center gap-2 border-t border-hairline pt-4">
-      <button
-        onClick={copyReport}
-        className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
-      >
-        <Copy className="h-3.5 w-3.5" />
-        Copy JSON
-      </button>
-      <button className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-surface hover:text-foreground">
-        <Bookmark className="h-3.5 w-3.5" />
-        Saved in Supabase
-      </button>
-      <div className="ml-auto flex items-center gap-1.5 text-[10px] text-muted-foreground">
-        <CheckCircle2 className="h-3 w-3 text-jade" />
-        API response rendered
       </div>
     </div>
   );

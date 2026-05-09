@@ -23,7 +23,7 @@ const config: Record<
     icon: X,
   },
   mushbooh: {
-    label: "Mushbooh",
+    label: "Review Required",
     sub: "Requires review",
     color: "text-verdict-mushbooh",
     bg: "bg-verdict-mushbooh/10",

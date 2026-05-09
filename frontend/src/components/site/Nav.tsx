@@ -33,7 +33,7 @@ export function Nav() {
         </nav>
         <div className="flex items-center gap-2 sm:gap-3">
           <Link
-            to="/assistant"
+            to="/sign-in"
             className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground md:inline-flex"
           >
             Sign in
@@ -74,6 +74,13 @@ export function Nav() {
                     {item.label}
                   </Link>
                 ))}
+                <Link
+                  to="/sign-in"
+                  onClick={() => setOpen(false)}
+                  className="rounded-xl px-3 py-3 text-base text-foreground/85 transition-colors hover:bg-surface sm:hidden"
+                >
+                  Sign in
+                </Link>
                 <Link
                   to="/assistant"
                   onClick={() => setOpen(false)}

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TransparencyRouteImport } from './routes/transparency'
+import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as EnterpriseRouteImport } from './routes/enterprise'
 import { Route as AssistantRouteImport } from './routes/assistant'
 import { Route as IndexRouteImport } from './routes/index'
@@ -17,6 +18,11 @@ import { Route as IndexRouteImport } from './routes/index'
 const TransparencyRoute = TransparencyRouteImport.update({
   id: '/transparency',
   path: '/transparency',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignInRoute = SignInRouteImport.update({
+  id: '/sign-in',
+  path: '/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EnterpriseRoute = EnterpriseRouteImport.update({
@@ -39,12 +45,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/assistant': typeof AssistantRoute
   '/enterprise': typeof EnterpriseRoute
+  '/sign-in': typeof SignInRoute
   '/transparency': typeof TransparencyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/assistant': typeof AssistantRoute
   '/enterprise': typeof EnterpriseRoute
+  '/sign-in': typeof SignInRoute
   '/transparency': typeof TransparencyRoute
 }
 export interface FileRoutesById {
@@ -52,20 +60,28 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/assistant': typeof AssistantRoute
   '/enterprise': typeof EnterpriseRoute
+  '/sign-in': typeof SignInRoute
   '/transparency': typeof TransparencyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/assistant' | '/enterprise' | '/transparency'
+  fullPaths: '/' | '/assistant' | '/enterprise' | '/sign-in' | '/transparency'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/assistant' | '/enterprise' | '/transparency'
-  id: '__root__' | '/' | '/assistant' | '/enterprise' | '/transparency'
+  to: '/' | '/assistant' | '/enterprise' | '/sign-in' | '/transparency'
+  id:
+    | '__root__'
+    | '/'
+    | '/assistant'
+    | '/enterprise'
+    | '/sign-in'
+    | '/transparency'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AssistantRoute: typeof AssistantRoute
   EnterpriseRoute: typeof EnterpriseRoute
+  SignInRoute: typeof SignInRoute
   TransparencyRoute: typeof TransparencyRoute
 }
 
@@ -76,6 +92,13 @@ declare module '@tanstack/react-router' {
       path: '/transparency'
       fullPath: '/transparency'
       preLoaderRoute: typeof TransparencyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sign-in': {
+      id: '/sign-in'
+      path: '/sign-in'
+      fullPath: '/sign-in'
+      preLoaderRoute: typeof SignInRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/enterprise': {
@@ -106,6 +129,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AssistantRoute: AssistantRoute,
   EnterpriseRoute: EnterpriseRoute,
+  SignInRoute: SignInRoute,
   TransparencyRoute: TransparencyRoute,
 }
 export const routeTree = rootRouteImport

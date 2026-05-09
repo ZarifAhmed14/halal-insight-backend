@@ -23,13 +23,13 @@ import { Link } from "@tanstack/react-router";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "HalalIQ - AI Pre-Certification for Manufacturers" },
+      { title: "Halal Intelligence - AI Pre-Certification for Manufacturers" },
       {
         name: "description",
         content:
           "AI-powered halal pre-certification readiness for food, cosmetics, pharmaceuticals, and export compliance workflows.",
       },
-      { property: "og:title", content: "HalalIQ Product Readiness Platform" },
+      { property: "og:title", content: "Halal Intelligence Product Readiness Platform" },
       {
         property: "og:description",
         content:
@@ -42,16 +42,16 @@ export const Route = createFileRoute("/")({
 
 type IngredientStatus = "halal" | "verify" | "haram";
 const SAMPLE_INGREDIENTS: { name: string; status: IngredientStatus; note: string }[] = [
-  { name: "Soybean Oil", status: "halal", note: "Plant-based - clear for food review." },
+  { name: "Soybean Oil", status: "halal", note: "Plant-based - clear for food review" },
   {
     name: "E471 Emulsifier",
     status: "verify",
-    note: "Source unclear - supplier certificate needed.",
+    note: "Source unclear - supplier certificate needed",
   },
   {
     name: "Collagen",
     status: "haram",
-    note: "Animal-origin evidence required before cosmetics review.",
+    note: "Animal-origin evidence required before cosmetics review",
   },
 ];
 
@@ -92,8 +92,8 @@ function LDCBanner() {
           <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-jade" />
         </span>
         <span className="text-foreground/85">
-          <span className="font-medium text-jade-glow">LDC Graduation Mode: Active.</span>{" "}
-          <span className="text-muted-foreground">Optimizing for High-Value Global Exports.</span>
+          <span className="font-medium text-jade-glow">LDC Graduation Mode Active</span>{" "}
+          <span className="text-muted-foreground">Optimizing for high-value global exports</span>
         </span>
       </div>
     </div>
@@ -124,21 +124,21 @@ function Hero() {
               <span className="absolute inline-flex h-full w-full rounded-full bg-jade animate-pulse-ring" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-jade" />
             </span>
-            For halal manufacturers - MVP ready
+            Evidence-first halal readiness
           </div>
 
           <h1 className="font-display mt-6 text-balance text-[2.6rem] font-light leading-[1.02] text-foreground sm:text-5xl md:text-6xl">
             Turn Ingredients Into{" "}
-            <span className="italic text-gradient-jade">Export Opportunities.</span>
+            <span className="italic text-gradient-jade">Export Opportunities</span>
           </h1>
 
           <p className="font-display mt-5 text-pretty text-xl italic text-jade-glow sm:text-2xl">
-            AI-powered halal pre-certification readiness.
+            AI-powered halal pre-certification readiness
           </p>
 
           <p className="mt-6 max-w-xl text-pretty text-[15px] leading-relaxed text-muted-foreground sm:text-base md:text-lg">
-            Know exactly which ingredients to fix before applying for JAKIM, ESMA, HFA, or EU
-            certification. Built for Bangladeshi manufacturers entering global markets.
+            Know which ingredients need evidence before market review. Built for Bangladeshi
+            manufacturers entering global halal markets.
           </p>
 
           <div className="mt-8 flex flex-wrap items-center gap-3">
@@ -161,9 +161,9 @@ function Hero() {
 
           <div className="mt-6 flex flex-wrap items-center gap-2">
             {[
-              { flag: "MY", label: "JAKIM" },
-              { flag: "AE", label: "ESMA" },
-              { flag: "UK", label: "HFA" },
+              { flag: "M", label: "Malaysia" },
+              { flag: "U", label: "UAE" },
+              { flag: "GB", label: "United Kingdom" },
             ].map((b) => (
               <span
                 key={b.label}
@@ -215,13 +215,7 @@ function Hero() {
             <div className="my-5 h-px w-full bg-hairline" />
 
             <div className="space-y-3">
-              <MarketRow
-                flag="MY"
-                name="Malaysia JAKIM"
-                pct={42}
-                tone="amber"
-                status="Nearly Ready"
-              />
+              <MarketRow flag="M" name="Malaysia" pct={42} tone="amber" status="Nearly Ready" />
               <MarketRow flag="UK" name="UK HFA" pct={31} tone="red" status="Gaps Found" />
             </div>
           </div>
@@ -301,7 +295,7 @@ function PlatformDemo() {
   const readyPct = Math.round((readyCount / total) * 100);
 
   return (
-    <Section eyebrow="How it works" title="Find out what to fix before certification.">
+    <Section eyebrow="How it works" title="Find out what to fix before certification">
       <div className="mx-auto grid max-w-5xl gap-6 md:grid-cols-2 md:gap-8">
         {/* LEFT - Step 1: Enter product */}
         <motion.div
@@ -314,7 +308,7 @@ function PlatformDemo() {
           <div className="text-xs font-medium uppercase tracking-widest text-jade-glow">Step 1</div>
           <h3 className="font-display mt-2 text-2xl text-foreground">Enter your product</h3>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            Paste a barcode or product name. We'll do the rest.
+            Paste a barcode or product name. We'll do the rest
           </p>
 
           <div className="mt-6 rounded-2xl border border-hairline bg-background/40 px-4 py-4">
@@ -345,7 +339,7 @@ function PlatformDemo() {
           </div>
           <h3 className="font-display mt-2 text-2xl text-foreground">See what needs fixing</h3>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            Each ingredient gets a clear status, so you know exactly what to do next.
+            Each ingredient gets a clear status, so you know exactly what to do next
           </p>
 
           {/* Simple progress bar */}
@@ -490,12 +484,12 @@ function DomainsSection() {
     {
       icon: Globe2,
       t: "Export Compliance",
-      d: "JAKIM - ESMA - HFA - EU certification readiness",
+      d: "Malaysia, UAE, UK, and EU readiness support",
       verdict: "halal" as const,
     },
   ];
   return (
-    <Section eyebrow="Coverage" title="Every category. Every market. One readiness report.">
+    <Section eyebrow="Coverage" title="Every category, every market, one readiness report">
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {domains.map((d, i) => (
           <motion.div
@@ -534,7 +528,7 @@ function DomainsSection() {
 /* ============================================================ PRODUCT SHOWCASE */
 function ProductShowcase() {
   return (
-    <Section eyebrow="The interface" title="Designed for clarity. Engineered for nuance.">
+    <Section eyebrow="The interface" title="Designed for clarity and nuance">
       <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
         <div className="glass rounded-3xl p-6 shadow-elegant">
           <div className="flex items-center justify-between">
@@ -562,7 +556,7 @@ function ProductShowcase() {
               },
               {
                 school: "Market checklist",
-                pos: "JAKIM or export authority review",
+                pos: "Certifier or export authority review",
                 lean: 64,
                 color: "verdict-mushbooh",
               },
@@ -617,21 +611,21 @@ function ProductShowcase() {
             </div>
             <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
               Confidence reflects extraction quality, graph coverage, and whether evidence is still
-              missing.
+              missing
             </p>
           </div>
 
           <div className="rounded-3xl border border-hairline bg-surface p-6">
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              Safer path
+              Review-first path
             </div>
             <p className="mt-3 text-sm leading-relaxed text-foreground/85">
-              When data is incomplete, HalalIQ marks the item as Needs Review instead of giving a
-              false low-risk result.
+              When data is incomplete, Halal Intelligence marks the item as Needs Review instead of
+              giving a false low-risk result
             </p>
             <div className="mt-4 inline-flex items-center gap-2 text-xs text-jade">
               <ShieldCheck className="h-3.5 w-3.5" />
-              Conservative fallback applied
+              Review-first decision applied
             </div>
           </div>
         </div>
@@ -656,11 +650,11 @@ function FinalCTA() {
             Built for the next billion decisions
           </div>
           <h2 className="font-display mt-6 text-balance text-4xl font-light leading-[1.05] sm:text-5xl md:text-6xl">
-            Make every choice with <span className="italic text-gradient-jade">conviction.</span>
+            Make every choice with <span className="italic text-gradient-jade">conviction</span>
           </h2>
           <p className="mx-auto mt-5 max-w-lg text-pretty text-muted-foreground">
-            HalalIQ helps manufacturers turn ingredient lists, label photos, and market rules into a
-            clear pre-certification readiness report.
+            Halal Intelligence helps manufacturers turn ingredient lists, label photos, and market
+            rules into a clear pre-certification readiness report
           </p>
           <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
             <Link
