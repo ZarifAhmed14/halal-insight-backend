@@ -44,14 +44,14 @@ type IngredientStatus = "halal" | "verify" | "haram";
 const SAMPLE_INGREDIENTS: { name: string; status: IngredientStatus; note: string }[] = [
   { name: "Soybean Oil", status: "halal", note: "Plant-based - clear for food review" },
   {
-    name: "E471 Emulsifier",
+    name: "Mixed Emulsifier",
     status: "verify",
-    note: "Source unclear - supplier certificate needed",
+    note: "Source still needs supplier proof",
   },
   {
     name: "Collagen",
     status: "haram",
-    note: "Animal-origin evidence required before cosmetics review",
+    note: "Source must be confirmed before review",
   },
 ];
 
@@ -204,7 +204,7 @@ function Hero() {
             <div className="mt-5 space-y-3">
               <PreviewRow name="Soybean Oil" status="halal" label="HALAL" />
               <PreviewRow
-                name="E471 - Mono/Di-glycerides"
+                name="Mixed Emulsifier"
                 status="verify"
                 label="VERIFY"
                 note="Source documentation required"
@@ -335,7 +335,7 @@ function PlatformDemo() {
           className="glass rounded-3xl p-7 shadow-elegant"
         >
           <div className="text-xs font-medium uppercase tracking-widest text-jade-glow">
-            Step 2 to 3
+            Step 2 and 3
           </div>
           <h3 className="font-display mt-2 text-2xl text-foreground">See what needs fixing</h3>
           <p className="mt-1.5 text-sm text-muted-foreground">
@@ -562,7 +562,7 @@ function ProductShowcase() {
               },
               {
                 school: "Final report",
-                pos: "Saved to Supabase history",
+                pos: "Saved to report history",
                 lean: 86,
                 color: "verdict-halal",
               },
@@ -610,7 +610,7 @@ function ProductShowcase() {
               ))}
             </div>
             <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-              Confidence reflects extraction quality, graph coverage, and whether evidence is still
+              Confidence reflects extraction quality, rule coverage, and whether evidence is still
               missing
             </p>
           </div>

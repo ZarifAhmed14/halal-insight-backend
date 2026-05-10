@@ -30,15 +30,15 @@ export function Footer() {
               title: "Knowledge",
               links: [
                 { to: "/transparency", label: "Methodology" },
-                { to: "/transparency#safety", label: "Safety principles" },
+                { to: "/transparency", label: "Safety principles", hash: "safety" },
               ],
             },
             {
               title: "Company",
               links: [
                 { to: "/enterprise", label: "About" },
-                { to: "/transparency#safety", label: "Privacy" },
-                { to: "/enterprise#contact", label: "Contact" },
+                { to: "/transparency", label: "Privacy", hash: "safety" },
+                { to: "/enterprise", label: "Contact", hash: "contact" },
               ],
             },
           ].map((col) => (
@@ -49,15 +49,13 @@ export function Footer() {
               <ul className="mt-4 space-y-3">
                 {col.links.map((l) => (
                   <li key={l.label}>
-                    {l.to.includes("#") ? (
-                      <a href={l.to} className="text-sm text-foreground/80 hover:text-foreground">
-                        {l.label}
-                      </a>
-                    ) : (
-                      <Link to={l.to} className="text-sm text-foreground/80 hover:text-foreground">
-                        {l.label}
-                      </Link>
-                    )}
+                    <Link
+                      to={l.to}
+                      hash={("hash" in l ? l.hash : undefined) as string | undefined}
+                      className="text-sm text-foreground/80 hover:text-foreground"
+                    >
+                      {l.label}
+                    </Link>
                   </li>
                 ))}
               </ul>

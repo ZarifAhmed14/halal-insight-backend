@@ -1,7 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { Logo } from "./Logo";
 import { ArrowUpRight, Menu, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getActiveGuestEmail } from "@/lib/guest-workspace";
 
 const NAV_ITEMS = [
   { to: "/assistant", label: "Assistant" },
@@ -11,6 +12,11 @@ const NAV_ITEMS = [
 
 export function Nav() {
   const [open, setOpen] = useState(false);
+  const [guestEmail, setGuestEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    setGuestEmail(getActiveGuestEmail());
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 w-full">
@@ -33,10 +39,10 @@ export function Nav() {
         </nav>
         <div className="flex items-center gap-2 sm:gap-3">
           <Link
-            to="/sign-in"
+            to={guestEmail ? "/assistant" : "/sign-in"}
             className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground md:inline-flex"
           >
-            Sign in
+            {guestEmail ?? "Sign in"}
           </Link>
           <Link
             to="/assistant"
@@ -75,11 +81,11 @@ export function Nav() {
                   </Link>
                 ))}
                 <Link
-                  to="/sign-in"
+                  to={guestEmail ? "/assistant" : "/sign-in"}
                   onClick={() => setOpen(false)}
                   className="rounded-xl px-3 py-3 text-base text-foreground/85 transition-colors hover:bg-surface sm:hidden"
                 >
-                  Sign in
+                  {guestEmail ?? "Sign in"}
                 </Link>
                 <Link
                   to="/assistant"

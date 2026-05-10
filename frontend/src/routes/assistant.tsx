@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import readXlsxFile from "read-excel-file/browser";
+import readExcelFile from "read-excel-file/browser";
 import {
   AlertTriangle,
   ArrowUp,
@@ -16,6 +16,7 @@ import {
   MapPinned,
   PackageCheck,
   Plus,
+  ScanLine,
   ScrollText,
   ShieldCheck,
   Sparkles,
@@ -33,6 +34,47 @@ import {
   type OverallStatus,
   type ReportHistoryItem,
 } from "@/lib/halaliq-api";
+import {
+  clearActiveGuestEmail,
+  getActiveGuestEmail,
+  getGuestHistory,
+  saveGuestReport,
+} from "@/lib/guest-workspace";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+type BarcodeFormat =
+  | "qr_code"
+  | "ean_13"
+  | "ean_8"
+  | "upc_a"
+  | "upc_e"
+  | "code_128";
+
+type DetectedBarcode = {
+  format: BarcodeFormat;
+  rawValue?: string;
+};
+
+type BarcodeDetectorInstance = {
+  detect: (source: ImageBitmapSource) => Promise<DetectedBarcode[]>;
+};
+
+type BarcodeDetectorConstructor = {
+  new (options?: { formats?: BarcodeFormat[] }): BarcodeDetectorInstance;
+  getSupportedFormats?: () => Promise<BarcodeFormat[]>;
+};
+
+declare global {
+  interface Window {
+    BarcodeDetector?: BarcodeDetectorConstructor;
+  }
+}
 
 export const Route = createFileRoute("/assistant")({
   head: () => ({
@@ -58,7 +100,7 @@ type ReportTab = "summary" | "blockers" | "warnings" | "safe" | "history";
 const SAMPLE_SCANS = [
   {
     productName: "Chocolate Wafer Biscuit",
-    ingredients: "E471\nGelatin\nVanilla Flavor",
+    ingredients: "Palm Oil\nGelatin\nVanilla Flavor",
     market: "Malaysia",
     domain: "food" as ComplianceDomain,
   },
@@ -69,8 +111,8 @@ const SAMPLE_SCANS = [
     domain: "cosmetics" as ComplianceDomain,
   },
   {
-    productName: "UAE Export Snack Pack",
-    ingredients: "E471\nGelatin\nNatural Flavor",
+    productName: "Export Compliance Demo",
+    ingredients: "Palm Oil\nGelatin\nNatural Flavor\nMixed Emulsifier\nChocolate Flavor",
     market: "UAE",
     domain: "export_compliance" as ComplianceDomain,
   },
@@ -122,12 +164,95 @@ const MARKET_OPTIONS = [
   },
 ];
 
+type MarketProfile = {
+  label: string;
+  confidenceAdjustment: number;
+  warningNote: string;
+  readinessSummary: Record<OverallStatus, string>;
+  defaultDocuments: string[];
+  strictBlockerIngredients: string[];
+  strictReviewIngredients: string[];
+};
+
+const MARKET_PROFILES: Record<string, MarketProfile> = {
+  Malaysia: {
+    label: "Malaysia",
+    confidenceAdjustment: 4,
+    warningNote: "Accepted with supplier proof in Malaysia",
+    readinessSummary: {
+      "Low Risk": "Ready for Malaysia review",
+      "Needs Review": "Needs more evidence for Malaysia review",
+      "Not Ready": "Not ready for Malaysia review",
+    },
+    defaultDocuments: ["Halal certificate", "Supplier declaration", "Ingredient origin proof"],
+    strictBlockerIngredients: [],
+    strictReviewIngredients: ["flavor", "emulsifier"],
+  },
+  UAE: {
+    label: "UAE",
+    confidenceAdjustment: -3,
+    warningNote: "Needs export evidence for UAE",
+    readinessSummary: {
+      "Low Risk": "Ready for UAE export review",
+      "Needs Review": "Needs more evidence for UAE export review",
+      "Not Ready": "Not ready for UAE export submission",
+    },
+    defaultDocuments: ["Export documents", "Ingredient source proof", "Batch traceability"],
+    strictBlockerIngredients: ["gelatin", "collagen"],
+    strictReviewIngredients: ["flavor", "glycerin"],
+  },
+  "United Kingdom": {
+    label: "United Kingdom",
+    confidenceAdjustment: -6,
+    warningNote: "Requires certifier review for UK",
+    readinessSummary: {
+      "Low Risk": "Ready for UK certifier review",
+      "Needs Review": "Needs more evidence for UK certifier review",
+      "Not Ready": "Not ready for UK certifier review",
+    },
+    defaultDocuments: ["Ingredient origin proof", "Certifier-ready evidence pack"],
+    strictBlockerIngredients: [],
+    strictReviewIngredients: ["collagen", "carmine", "gelatin"],
+  },
+  "European Union": {
+    label: "European Union",
+    confidenceAdjustment: -10,
+    warningNote: "Needs broader export evidence for EU review",
+    readinessSummary: {
+      "Low Risk": "Ready for EU export review",
+      "Needs Review": "Needs more evidence for EU export review",
+      "Not Ready": "Not ready for EU export submission",
+    },
+    defaultDocuments: ["Ingredient source proof", "Traceability record", "Export pack readiness"],
+    strictBlockerIngredients: [],
+    strictReviewIngredients: ["gelatin", "collagen", "flavor"],
+  },
+};
+
 function getDomainLabel(domain: ComplianceDomain | undefined): string {
   return DOMAIN_OPTIONS.find((option) => option.value === domain)?.label ?? "Food";
 }
 
 function getMarketLabel(market: string): string {
   return MARKET_OPTIONS.find((option) => option.value === market)?.label ?? market;
+}
+
+function getMarketProfile(market: string): MarketProfile {
+  return (
+    MARKET_PROFILES[market] ?? {
+      label: market,
+      confidenceAdjustment: -4,
+      warningNote: `Needs market-specific evidence for ${market}`,
+      readinessSummary: {
+        "Low Risk": `Ready for ${market} review`,
+        "Needs Review": `Needs more evidence for ${market} review`,
+        "Not Ready": `Not ready for ${market} submission`,
+      },
+      defaultDocuments: ["Ingredient source proof", "Supplier documents", "Traceability record"],
+      strictBlockerIngredients: [],
+      strictReviewIngredients: ["flavor", "gelatin"],
+    }
+  );
 }
 
 function buildInternalProductName({
@@ -145,10 +270,247 @@ function buildInternalProductName({
     return productName.trim();
   }
 
-  const firstIngredient = ingredients[0] ?? "Reviewed Label";
-  const ingredientSuffix = ingredients.length > 1 ? ` + ${ingredients.length - 1}` : "";
+  const ingredientCount = ingredients.length || 1;
 
-  return `${getDomainLabel(domain)} scan: ${firstIngredient}${ingredientSuffix} for ${getMarketLabel(market)}`;
+  return `${getDomainLabel(domain)} scan with ${ingredientCount} ingredient${ingredientCount === 1 ? "" : "s"} for ${getMarketLabel(market)}`;
+}
+
+function mergeHistoryLists(
+  primaryHistory: ReportHistoryItem[],
+  secondaryHistory: ReportHistoryItem[],
+): ReportHistoryItem[] {
+  const merged = [...primaryHistory, ...secondaryHistory];
+  const seenIds = new Set<string>();
+
+  return merged.filter((item) => {
+    if (seenIds.has(item.id)) {
+      return false;
+    }
+
+    seenIds.add(item.id);
+    return true;
+  });
+}
+
+function matchesMarketIngredient(entry: ComplianceEntry, matchers: string[]): boolean {
+  const ingredient = entry.ingredient.toLowerCase();
+  return matchers.some((matcher) => ingredient.includes(matcher));
+}
+
+function mergeRequiredDocuments(existingDocuments: string[], market: string): string[] {
+  const defaults = getMarketProfile(market).defaultDocuments;
+  return Array.from(new Set([...existingDocuments, ...defaults]));
+}
+
+function applyMarketRulesToEntry(
+  entry: ComplianceEntry,
+  market: string,
+  lane: "blockers" | "warnings" | "safe",
+): ComplianceEntry {
+  const profile = getMarketProfile(market);
+  const laneMessage =
+    lane === "blockers"
+      ? `${profile.warningNote}. This item should stay blocked until the country-specific evidence is complete.`
+      : lane === "warnings"
+        ? `${profile.warningNote}. Review the country-specific evidence before submission.`
+        : `Low-risk for now, but ${profile.warningNote.toLowerCase()}.`;
+
+  return {
+    ...entry,
+    risk:
+      lane === "blockers"
+        ? `Blocked for ${profile.label}`
+        : lane === "warnings"
+          ? `Review for ${profile.label}`
+          : `Low risk for ${profile.label}`,
+    reasoning: `${simplifyReasoning(entry)} ${laneMessage}`,
+    required_documents: mergeRequiredDocuments(entry.required_documents, market),
+    affected_markets: Array.from(new Set([profile.label, ...entry.affected_markets])),
+  };
+}
+
+function applyMarketRulesToReport(report: ComplianceReport, market: string): ComplianceReport {
+  const profile = getMarketProfile(market);
+  const nextBlockers = report.blockers.map((entry) => applyMarketRulesToEntry(entry, market, "blockers"));
+  const strictWarnings = report.warnings.map((entry) => applyMarketRulesToEntry(entry, market, "warnings"));
+  const strictSafe = report.safe.map((entry) => applyMarketRulesToEntry(entry, market, "safe"));
+
+  const promotedWarnings = strictWarnings.filter((entry) =>
+    matchesMarketIngredient(entry, profile.strictBlockerIngredients),
+  );
+  const remainingWarnings = strictWarnings.filter(
+    (entry) => !matchesMarketIngredient(entry, profile.strictBlockerIngredients),
+  );
+  const promotedSafe = strictSafe.filter((entry) =>
+    matchesMarketIngredient(entry, profile.strictReviewIngredients),
+  );
+  const remainingSafe = strictSafe.filter(
+    (entry) => !matchesMarketIngredient(entry, profile.strictReviewIngredients),
+  );
+
+  const blockers = [...nextBlockers, ...promotedWarnings].map((entry) => ({
+    ...entry,
+    risk: `Blocked for ${profile.label}`,
+  }));
+  const warnings = [...remainingWarnings, ...promotedSafe].map((entry) => ({
+    ...entry,
+    risk: `Review for ${profile.label}`,
+  }));
+  const safe = remainingSafe;
+
+  return {
+    ...report,
+    market,
+    blockers,
+    warnings,
+    safe,
+    overall_status:
+      blockers.length > 0
+        ? "Not Ready"
+        : warnings.length > 0
+          ? "Needs Review"
+          : "Low Risk",
+    summary: {
+      ...report.summary,
+      blockers_count: blockers.length,
+      warnings_count: warnings.length,
+      human_readable: profile.readinessSummary[
+        blockers.length > 0 ? "Not Ready" : warnings.length > 0 ? "Needs Review" : "Low Risk"
+      ],
+    },
+  };
+}
+
+function getMarketChecklist(report: ComplianceReport, market: string) {
+  const hasBlockers = report.blockers.length > 0;
+  const hasWarnings = report.warnings.length > 0;
+
+  return [
+    {
+      label: "Ingredient review",
+      state: hasBlockers ? "Required" : hasWarnings ? "Review" : "Ready",
+    },
+    {
+      label: "Supplier documents",
+      state: report.blockers.length + report.warnings.length > 0 ? "Required" : "Ready",
+    },
+    {
+      label: "Traceability",
+      state: market === "UAE" || market === "European Union" ? "Required" : hasWarnings ? "Review" : "Ready",
+    },
+    {
+      label: "Labeling",
+      state: hasWarnings ? "Review" : "Ready",
+    },
+    {
+      label: "Export pack readiness",
+      state: hasBlockers ? "Blocked" : hasWarnings ? "Review" : "Ready",
+    },
+  ];
+}
+
+type CodePayload = {
+  ingredients: string[];
+  productName?: string;
+  market?: string;
+  domain?: ComplianceDomain;
+  sourceLabel: string;
+};
+
+function extractIngredientsFromText(rawValue: string): string[] {
+  const normalized = rawValue.replace(/\|/g, "\n");
+  const matchedIngredients = normalized.match(/ingredients?\s*[:=-]\s*([\s\S]+)/i);
+
+  if (matchedIngredients?.[1]) {
+    return parseIngredients(matchedIngredients[1]);
+  }
+
+  return parseIngredients(normalized);
+}
+
+function parseCodePayload(rawValue: string): CodePayload | null {
+  const trimmedValue = rawValue.trim();
+
+  if (!trimmedValue) {
+    return null;
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedValue);
+    const urlIngredients = parseIngredients(
+      parsedUrl.searchParams.get("ingredients") ??
+        parsedUrl.searchParams.get("ingredient_list") ??
+        parsedUrl.searchParams.get("items") ??
+        "",
+    );
+
+    if (urlIngredients.length > 0) {
+      const nextDomain = parsedUrl.searchParams.get("domain");
+
+      return {
+        ingredients: urlIngredients,
+        productName: parsedUrl.searchParams.get("product_name") ?? undefined,
+        market: parsedUrl.searchParams.get("market") ?? undefined,
+        domain: isComplianceDomain(nextDomain) ? nextDomain : undefined,
+        sourceLabel: "QR code",
+      };
+    }
+  } catch (_error) {
+    // Ignore non-URL values and keep checking other payload shapes.
+  }
+
+  try {
+    const parsedJson = JSON.parse(trimmedValue) as Record<string, unknown>;
+    const rawIngredients =
+      parsedJson.ingredients ??
+      parsedJson.ingredient_list ??
+      parsedJson.items ??
+      parsedJson.ingredients_text;
+
+    const ingredients = Array.isArray(rawIngredients)
+      ? rawIngredients
+          .filter((value): value is string => typeof value === "string")
+          .flatMap((value) => parseIngredients(value))
+      : typeof rawIngredients === "string"
+        ? parseIngredients(rawIngredients)
+        : [];
+
+    if (ingredients.length > 0) {
+      const nextDomain =
+        typeof parsedJson.domain === "string" ? parsedJson.domain : undefined;
+
+      return {
+        ingredients,
+        productName:
+          typeof parsedJson.product_name === "string" ? parsedJson.product_name : undefined,
+        market: typeof parsedJson.market === "string" ? parsedJson.market : undefined,
+        domain: isComplianceDomain(nextDomain) ? nextDomain : undefined,
+        sourceLabel: "QR code",
+      };
+    }
+  } catch (_error) {
+    // Ignore non-JSON values and try plain text extraction.
+  }
+
+  const ingredients = extractIngredientsFromText(trimmedValue);
+
+  if (ingredients.length > 1) {
+    return {
+      ingredients,
+      sourceLabel: "QR code",
+    };
+  }
+
+  return null;
+}
+
+function isComplianceDomain(value: string | null | undefined): value is ComplianceDomain {
+  return (
+    value === "food" ||
+    value === "cosmetics" ||
+    value === "export_compliance" ||
+    value === "pharmaceuticals"
+  );
 }
 
 function AssistantPage() {
@@ -169,6 +531,33 @@ function AssistantPage() {
   const [report, setReport] = useState<ComplianceReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [guestEmail, setGuestEmail] = useState<string | null>(null);
+  const [guestHistory, setGuestHistory] = useState<ReportHistoryItem[]>([]);
+  const ingredientEditorRef = useRef<HTMLLabelElement | null>(null);
+  const resultsTopRef = useRef<HTMLDivElement | null>(null);
+  const activeHistory = report?.history ?? guestHistory;
+
+  useEffect(() => {
+    const nextGuestEmail = getActiveGuestEmail();
+    setGuestEmail(nextGuestEmail);
+    setGuestHistory(getGuestHistory(nextGuestEmail));
+  }, []);
+
+  useEffect(() => {
+    if (!submitted || (!report && !isLoading && !error)) {
+      return;
+    }
+
+    resultsTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [submitted, report, isLoading, error]);
+
+  useEffect(() => {
+    if (!extractionResult && !fileImportMessage) {
+      return;
+    }
+
+    ingredientEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [extractionResult, fileImportMessage]);
 
   const updateIngredientsInput = (value: string) => {
     setIngredientsInput(value);
@@ -185,15 +574,25 @@ function AssistantPage() {
     setProductName("");
   };
 
-  const runScan = async () => {
-    const ingredients = parseIngredients(ingredientsInput);
+  const runPreparedScan = async ({
+    nextProductName,
+    nextIngredientsInput,
+    nextMarket,
+    nextDomain,
+  }: {
+    nextProductName: string;
+    nextIngredientsInput: string;
+    nextMarket: string;
+    nextDomain: ComplianceDomain;
+  }) => {
+    const ingredients = parseIngredients(nextIngredientsInput);
 
     if (ingredients.length === 0) {
       setError("Add at least one ingredient before running a scan.");
       return;
     }
 
-    if (market.trim().length === 0) {
+    if (nextMarket.trim().length === 0) {
       setError("Market is required before running a scan.");
       return;
     }
@@ -205,28 +604,46 @@ function AssistantPage() {
 
     try {
       const productNameForScan = buildInternalProductName({
-        productName,
-        domain,
-        market: market.trim(),
+        productName: nextProductName,
+        domain: nextDomain,
+        market: nextMarket.trim(),
         ingredients,
       });
 
       setProductName(productNameForScan);
+      setIngredientsInput(nextIngredientsInput);
+      setMarket(nextMarket);
+      setDomain(nextDomain);
 
       const nextReport = await analyzeProduct({
         product_name: productNameForScan,
         ingredients,
-        market: market.trim(),
-        domain,
+        market: nextMarket.trim(),
+        domain: nextDomain,
       });
 
-      setReport(nextReport);
+      const marketAwareReport = applyMarketRulesToReport(nextReport, nextMarket.trim());
+      const nextHistory = guestEmail ? saveGuestReport(guestEmail, marketAwareReport) : guestHistory;
+      setGuestHistory(nextHistory);
+      setReport({
+        ...marketAwareReport,
+        history: mergeHistoryLists(nextHistory, marketAwareReport.history ?? []),
+      });
     } catch (scanError) {
       setReport(null);
       setError(scanError instanceof Error ? scanError.message : "Unable to run the scan.");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const runScan = async () => {
+    await runPreparedScan({
+      nextProductName: productName,
+      nextIngredientsInput: ingredientsInput,
+      nextMarket: market,
+      nextDomain: domain,
+    });
   };
 
   const handleImageSelected = (file: File | null) => {
@@ -331,11 +748,53 @@ function AssistantPage() {
     setSubmitted(false);
   };
 
+  const runDemoSample = async (sample: (typeof SAMPLE_SCANS)[number]) => {
+    handleImageSelected(null);
+    setExtractionResult(null);
+    setExtractionError(null);
+    setFileImportMessage(null);
+    setFileImportError(null);
+    await runPreparedScan({
+      nextProductName: sample.productName,
+      nextIngredientsInput: sample.ingredients,
+      nextMarket: sample.market,
+      nextDomain: sample.domain,
+    });
+  };
+
+  const applyCodePayload = (payload: CodePayload) => {
+    setIngredientsInput(payload.ingredients.join("\n"));
+
+    if (payload.productName?.trim()) {
+      setProductName(payload.productName.trim());
+    } else {
+      setProductName("");
+    }
+
+    if (payload.market?.trim()) {
+      setMarket(payload.market.trim());
+    }
+
+    if (payload.domain) {
+      setDomain(payload.domain);
+    }
+
+    setExtractionResult(null);
+    setExtractionError(null);
+    setReport(null);
+    setError(null);
+    setSubmitted(false);
+    setFileImportError(null);
+    setFileImportMessage(
+      `Loaded ${payload.ingredients.length} ingredient(s) from ${payload.sourceLabel}. Review them below before scanning.`,
+    );
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Nav />
       <div className="mx-auto grid max-w-[1400px] grid-cols-1 lg:grid-cols-[280px_1fr]">
-        <aside className="hidden border-r border-hairline px-4 py-6 lg:block">
+        <aside className="border-b border-hairline px-4 py-4 lg:border-r lg:border-b-0 lg:py-6">
           <button
             onClick={() => {
               setSubmitted(false);
@@ -359,10 +818,20 @@ function AssistantPage() {
           </button>
 
           <div className="mt-8">
-            <div className="px-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-              Sample products
+            <div className="flex items-center justify-between gap-3 px-2">
+              <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+                Sample products
+              </div>
+              <button
+                type="button"
+                onClick={() => void runDemoSample(SAMPLE_SCANS[2])}
+                className="inline-flex items-center gap-1.5 rounded-full border border-jade/25 bg-jade/10 px-3 py-1 text-[10px] font-medium text-jade transition-colors hover:bg-jade/15"
+              >
+                <ArrowUp className="h-3 w-3" />
+                Run export demo
+              </button>
             </div>
-            <ul className="mt-2 space-y-1">
+            <ul className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-1">
               {SAMPLE_SCANS.map((sample) => (
                 <li key={sample.productName}>
                   <button
@@ -380,20 +849,23 @@ function AssistantPage() {
             </ul>
           </div>
 
-          <HistoryPanel history={report?.history ?? []} />
+          <GuestWorkspaceCard
+            guestEmail={guestEmail}
+            historyCount={guestHistory.length}
+            onSignOut={() => {
+              clearActiveGuestEmail();
+              setGuestEmail(null);
+              setGuestHistory([]);
+              setReport((currentReport) =>
+                currentReport ? { ...currentReport, history: [] } : currentReport,
+              );
+            }}
+          />
 
-          <div className="mt-8 rounded-2xl border border-hairline bg-surface p-4">
-            <div className="flex items-center gap-2 text-xs text-jade">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Supabase Edge Function
-            </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-              Scans are sent to the backend, saved into Supabase, and returned with report history.
-            </p>
-          </div>
+          <HistoryPanel history={activeHistory} />
         </aside>
 
-        <main className="relative min-h-[calc(100vh-4rem)] px-4 py-6 sm:py-8 md:px-10">
+        <main className="relative min-h-[calc(100vh-4rem)] px-4 py-6 sm:py-8 md:px-6 lg:px-10">
           <AnimatePresence mode="wait">
             {!submitted ? (
               <motion.div
@@ -401,13 +873,14 @@ function AssistantPage() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className="mx-auto flex min-h-[70vh] max-w-3xl flex-col justify-center"
+                className="mx-auto flex max-w-3xl flex-col justify-center lg:min-h-[70vh]"
               >
                 <IntroHeader />
                 <ScanForm
                   ingredientsInput={ingredientsInput}
                   market={market}
                   domain={domain}
+                  ingredientEditorRef={ingredientEditorRef}
                   isLoading={isLoading}
                   isExtracting={isExtracting}
                   error={error}
@@ -423,6 +896,7 @@ function AssistantPage() {
                   onImageSelected={handleImageSelected}
                   onExtractImage={runImageExtraction}
                   onImportIngredientFile={importIngredientFile}
+                  onCodePayloadDetected={applyCodePayload}
                   onSubmit={runScan}
                 />
               </motion.div>
@@ -434,14 +908,16 @@ function AssistantPage() {
                 exit={{ opacity: 0 }}
                 className="mx-auto max-w-4xl pb-32"
               >
-                <ReportHeader
-                  productName={productName}
-                  market={market}
-                  domain={report?.domain ?? domain}
-                  report={report}
-                  isLoading={isLoading}
-                  onEdit={() => setSubmitted(false)}
-                />
+                <div ref={resultsTopRef}>
+                  <ReportHeader
+                    productName={productName}
+                    market={market}
+                    domain={report?.domain ?? domain}
+                    report={report}
+                    isLoading={isLoading}
+                    onEdit={() => setSubmitted(false)}
+                  />
+                </div>
 
                 {error && <ErrorCard message={error} />}
 
@@ -481,7 +957,7 @@ function AssistantPage() {
                               tone="safe"
                             />
                           )}
-                          {tab === "history" && <HistoryTab history={report.history ?? []} />}
+                          {tab === "history" && <HistoryTab history={activeHistory} />}
                         </motion.div>
                       </AnimatePresence>
                     </div>
@@ -489,7 +965,7 @@ function AssistantPage() {
                 )}
 
                 <div className="fixed inset-x-0 bottom-0 border-t border-hairline bg-background/85 backdrop-blur-xl">
-                  <div className="mx-auto max-w-4xl px-4 py-3 sm:py-4 md:px-10">
+                  <div className="mx-auto max-w-4xl px-4 py-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:py-4 md:px-10">
                     <MiniScanBar
                       market={market}
                       domain={domain}
@@ -518,6 +994,144 @@ function parseIngredients(value: string): string[] {
 
 function isImportHeader(value: string): boolean {
   return ["ingredient", "ingredients", "item", "items"].includes(value.trim().toLowerCase());
+}
+
+function normalizeCellText(cell: unknown): string {
+  if (cell === null || cell === undefined) {
+    return "";
+  }
+
+  return String(cell).trim();
+}
+
+function isSummarySheetName(name: string): boolean {
+  return /summary|meta|readme|notes/i.test(name);
+}
+
+function getIngredientColumnIndexes(headerRow: unknown[]): number[] {
+  const exactMatches = new Set([
+    "ingredient",
+    "ingredients",
+    "ingredient primary",
+    "ingredient secondary",
+    "ingredient_primary",
+    "ingredient_secondary",
+    "item",
+    "items",
+  ]);
+
+  return headerRow.reduce<number[]>((matches, cell, index) => {
+    const normalized = normalizeCellText(cell).toLowerCase();
+    if (!normalized) {
+      return matches;
+    }
+
+    if (exactMatches.has(normalized) || normalized.includes("ingredient")) {
+      matches.push(index);
+    }
+
+    return matches;
+  }, []);
+}
+
+function looksLikeMetadataRow(row: string[]): boolean {
+  const joined = row.join(" ").toLowerCase();
+
+  return (
+    joined.includes("summary") ||
+    joined.includes("demo sample") ||
+    joined.includes("product rows") ||
+    joined.includes("ingredient columns") ||
+    joined.includes("countries") ||
+    joined.includes("categories")
+  );
+}
+
+function dedupeIngredients(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function extractIngredientsFromSheetRows(rows: unknown[][]): string[] {
+  if (!rows.length) {
+    return [];
+  }
+
+  const headerRow = rows.find((row) =>
+    row.some((cell) => normalizeCellText(cell).length > 0),
+  ) ?? [];
+  const ingredientColumnIndexes = getIngredientColumnIndexes(headerRow);
+
+  if (ingredientColumnIndexes.length > 0) {
+    return dedupeIngredients(
+      rows
+        .slice(rows.indexOf(headerRow) + 1)
+        .flatMap((row) =>
+          ingredientColumnIndexes.flatMap((columnIndex) =>
+            parseIngredients(normalizeCellText(row[columnIndex])),
+          ),
+        )
+        .filter((cell) => cell.length > 0 && !isImportHeader(cell)),
+    ).slice(0, MAX_IMPORTED_FILE_ROWS);
+  }
+
+  const cdColumnIngredients = dedupeIngredients(
+    rows
+      .flatMap((row) => [normalizeCellText(row[2]), normalizeCellText(row[3])])
+      .filter((cell) => cell.length > 0 && !isImportHeader(cell))
+      .flatMap((cell) => parseIngredients(cell)),
+  ).filter((cell) => !looksLikeMetadataRow([cell]));
+
+  if (cdColumnIngredients.length > 0) {
+    return cdColumnIngredients.slice(0, MAX_IMPORTED_FILE_ROWS);
+  }
+
+  return dedupeIngredients(
+    rows
+      .flatMap((row) => row.map((cell) => normalizeCellText(cell)))
+      .filter((cell) => cell.length > 0 && !isImportHeader(cell))
+      .flatMap((cell) => parseIngredients(cell)),
+  ).slice(0, MAX_IMPORTED_FILE_ROWS);
+}
+
+function extractIngredientsFromWorkbookSheets(
+  workbook: unknown,
+): string[] {
+  const sheets = Array.isArray(workbook)
+    ? workbook
+        .map((entry) => {
+          if (
+            entry &&
+            typeof entry === "object" &&
+            "data" in entry &&
+            Array.isArray((entry as { data?: unknown }).data)
+          ) {
+            const sheetEntry = entry as { sheet?: string; data: unknown[][] };
+            return { sheet: sheetEntry.sheet ?? "", data: sheetEntry.data };
+          }
+
+          if (Array.isArray(entry)) {
+            return { sheet: "", data: entry as unknown[][] };
+          }
+
+          return null;
+        })
+        .filter((entry): entry is { sheet: string; data: unknown[][] } => Boolean(entry))
+    : [];
+
+  const candidateSheets = sheets.filter(
+    (sheet) => sheet.data.length > 0 && !isSummarySheetName(sheet.sheet),
+  );
+
+  const prioritizedSheet =
+    candidateSheets.find((sheet) =>
+      sheet.data.some((row) => getIngredientColumnIndexes(row).length > 0),
+    ) ?? candidateSheets[0] ?? sheets.find((sheet) => sheet.data.length > 0);
+
+  if (!prioritizedSheet) {
+    return [];
+  }
+
+  return extractIngredientsFromSheetRows(prioritizedSheet.data);
 }
 
 function sanitizeExtractedIngredients(ingredients: unknown): string[] {
@@ -549,15 +1163,14 @@ async function readIngredientsFromFile(file: File): Promise<string[]> {
   }
 
   if (extension === "xlsx") {
-    const rows = await readXlsxFile(file);
-    const text = rows
-      .flatMap((row) => row.filter((cell) => cell !== null && cell !== undefined))
-      .map((cell) => String(cell).trim())
-      .filter((cell) => cell.length > 0 && !isImportHeader(cell))
-      .slice(0, MAX_IMPORTED_FILE_ROWS)
-      .join("\n");
+    const workbook = await readExcelFile(file);
+    const ingredients = extractIngredientsFromWorkbookSheets(workbook);
 
-    return parseIngredients(text);
+    if (ingredients.length > 0) {
+      return ingredients;
+    }
+
+    throw new Error("No ingredient columns were found in this Excel file.");
   }
 
   if (extension === "docx") {
@@ -609,31 +1222,20 @@ function statusToVerdict(status: OverallStatus): "halal" | "haram" | "mushbooh" 
   return "halal";
 }
 
-function getReadinessConfidence(status: OverallStatus): number {
-  if (status === "Not Ready") {
-    return 88;
-  }
-
-  if (status === "Needs Review") {
-    return 75;
-  }
-
-  return 92;
+function getReadinessConfidence(status: OverallStatus, market: string): number {
+  const baseConfidence = status === "Not Ready" ? 88 : status === "Needs Review" ? 75 : 92;
+  return Math.max(52, Math.min(98, baseConfidence + getMarketProfile(market).confidenceAdjustment));
 }
 
 function simplifyReasoning(entry: ComplianceEntry): string {
   const ingredient = entry.ingredient.toLowerCase();
-
-  if (ingredient.includes("e471")) {
-    return "E471 can come from plant or animal fat, so the supplier must prove the source.";
-  }
 
   if (ingredient.includes("gelatin")) {
     return "Gelatin is usually animal-derived, so the source and halal certificate must be checked.";
   }
 
   if (ingredient.includes("collagen")) {
-    return "Collagen is often animal-derived, so the product needs origin evidence before approval.";
+    return "Collagen often comes from animals, so the source needs to be confirmed before approval.";
   }
 
   if (ingredient.includes("carmine")) {
@@ -643,36 +1245,36 @@ function simplifyReasoning(entry: ComplianceEntry): string {
   return entry.reasoning;
 }
 
-function getReadinessCopy(status: OverallStatus): {
+function getReadinessCopy(status: OverallStatus, market: string): {
   title: string;
   description: string;
   action: string;
 } {
+  const profile = getMarketProfile(market);
+
   if (status === "Not Ready") {
     return {
-      title: "Certification blocker detected",
+      title: profile.readinessSummary["Not Ready"],
       description:
-        "This product should not move into certification submission until the blocker ingredients are resolved or supported with stronger documentation.",
-      action: "Review blocker ingredients before preparing the submission pack.",
+        "This market still has blocker ingredients or stricter evidence expectations that should be resolved before submission.",
+      action: `Complete the ${profile.label} evidence pack before moving forward.`,
     };
   }
 
   if (status === "Needs Review") {
     return {
-      title: "Needs technical review",
+      title: profile.readinessSummary["Needs Review"],
       description:
-        "No hard blockers were found, but the product still has medium-risk ingredients that should be reviewed before submission.",
-      action:
-        "Collect supporting documents and ask a halal assurance reviewer to confirm the risk position.",
+        "No hard blocker is stopping the product, but this market still expects additional review evidence before submission.",
+      action: `Collect the ${profile.label} review documents and close the open evidence items.`,
     };
   }
 
   return {
-    title: "Low-risk scan result",
+    title: profile.readinessSummary["Low Risk"],
     description:
-      "No blocker or warning ingredients were found in this scan, based on the current Neo4j knowledge graph.",
-    action:
-      "Keep ingredient documentation ready and continue with the normal pre-certification workflow.",
+      "No blocker or warning ingredients were found after applying the current market rules and evidence checks.",
+    action: `Keep the ${profile.label} documents ready and continue with the next review step.`,
   };
 }
 
@@ -696,10 +1298,10 @@ function getToneStyles(tone: "blocker" | "warning" | "safe") {
   }
 
   return {
-    card: "border-verdict-halal/25 bg-verdict-halal/5",
-    badge: "border-verdict-halal/30 bg-verdict-halal/10 text-verdict-halal",
+    card: "border-verdict-halal/35 bg-verdict-halal/10",
+    badge: "border-verdict-halal/40 bg-verdict-halal/15 text-verdict-halal",
     icon: "text-verdict-halal",
-    action: "Keep documentation on file",
+    action: "Ready for the next review step",
   };
 }
 
@@ -722,6 +1324,7 @@ function ScanForm({
   ingredientsInput,
   market,
   domain,
+  ingredientEditorRef,
   isLoading,
   isExtracting,
   isImportingFile,
@@ -737,11 +1340,13 @@ function ScanForm({
   onImageSelected,
   onExtractImage,
   onImportIngredientFile,
+  onCodePayloadDetected,
   onSubmit,
 }: {
   ingredientsInput: string;
   market: string;
   domain: ComplianceDomain;
+  ingredientEditorRef: React.RefObject<HTMLLabelElement | null>;
   isLoading: boolean;
   isExtracting: boolean;
   isImportingFile: boolean;
@@ -757,29 +1362,187 @@ function ScanForm({
   onImageSelected: (file: File | null) => void;
   onExtractImage: () => void;
   onImportIngredientFile: (file: File | null) => void;
+  onCodePayloadDetected: (payload: CodePayload) => void;
   onSubmit: () => void;
 }) {
   const reviewedIngredientCount = parseIngredients(ingredientsInput).length;
   const hasExtractedIngredients = Boolean(
     extractionResult && extractionResult.ingredients.length > 0,
   );
-  const preScanConfidence = extractionResult
-    ? Math.max(55, Math.round(extractionResult.confidence * 100))
-    : reviewedIngredientCount > 0
-      ? 75
-      : 0;
+  const [isCodeScannerOpen, setIsCodeScannerOpen] = useState(false);
+  const [codeScannerError, setCodeScannerError] = useState<string | null>(null);
+  const [codeScannerHint, setCodeScannerHint] = useState(
+    "Point the camera at a QR code that contains ingredients or a linked product payload.",
+  );
+  const [isStartingScanner, setIsStartingScanner] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanTimeoutRef = useRef<number | null>(null);
+  const detectorRef = useRef<BarcodeDetectorInstance | null>(null);
+  const extractedConfidence = extractionResult
+    ? Math.round(extractionResult.confidence * 100)
+    : null;
+  const preScanConfidence =
+    extractedConfidence !== null
+      ? hasExtractedIngredients
+        ? Math.max(55, extractedConfidence)
+        : extractedConfidence
+      : reviewedIngredientCount > 0
+        ? 75
+        : 0;
   const scanButtonText = hasExtractedIngredients
     ? "Scan reviewed ingredients"
     : "Run compliance scan";
 
+  const stopCodeScanner = () => {
+    if (scanTimeoutRef.current !== null) {
+      window.clearTimeout(scanTimeoutRef.current);
+      scanTimeoutRef.current = null;
+    }
+
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    detectorRef.current = null;
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  };
+
+  useEffect(() => stopCodeScanner, []);
+
+  useEffect(() => {
+    if (!isCodeScannerOpen) {
+      stopCodeScanner();
+      setIsStartingScanner(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const startScanner = async () => {
+      setCodeScannerError(null);
+      setIsStartingScanner(true);
+
+      if (
+        typeof window === "undefined" ||
+        !window.BarcodeDetector ||
+        !navigator.mediaDevices?.getUserMedia
+      ) {
+        setCodeScannerError(
+          "This device does not support live code scanning here yet. You can still upload a label photo or ingredient file.",
+        );
+        setIsStartingScanner(false);
+        return;
+      }
+
+      try {
+        const requestedFormats: BarcodeFormat[] = [
+          "qr_code",
+          "ean_13",
+          "ean_8",
+          "upc_a",
+          "upc_e",
+          "code_128",
+        ];
+        const supportedFormats = window.BarcodeDetector.getSupportedFormats
+          ? await window.BarcodeDetector.getSupportedFormats()
+          : requestedFormats;
+        const activeFormats = requestedFormats.filter((format) =>
+          supportedFormats.includes(format),
+        );
+
+        detectorRef.current = new window.BarcodeDetector({
+          formats: activeFormats.length > 0 ? activeFormats : ["qr_code"],
+        });
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+          },
+          audio: false,
+        });
+
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+
+        setCodeScannerHint("Scan a QR code with ingredient data. Product-only barcodes need a linked catalog.");
+        setIsStartingScanner(false);
+
+        const scanFrame = async () => {
+          if (
+            cancelled ||
+            !isCodeScannerOpen ||
+            !videoRef.current ||
+            !detectorRef.current ||
+            videoRef.current.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+          ) {
+            scanTimeoutRef.current = window.setTimeout(scanFrame, 400);
+            return;
+          }
+
+          try {
+            const detections = await detectorRef.current.detect(videoRef.current);
+            const rawValue = detections.find((item) => item.rawValue?.trim())?.rawValue?.trim();
+
+            if (rawValue) {
+              const payload = parseCodePayload(rawValue);
+
+              if (payload) {
+                onCodePayloadDetected(payload);
+                setIsCodeScannerOpen(false);
+                stopCodeScanner();
+                return;
+              }
+
+              setCodeScannerError(
+                "Code scanned, but it did not include ingredient data. Use a QR code that stores ingredients or a linked product payload.",
+              );
+            }
+          } catch (_error) {
+            setCodeScannerError(
+              "The camera opened, but the code could not be read yet. Try better lighting or move the phone closer.",
+            );
+          }
+
+          scanTimeoutRef.current = window.setTimeout(scanFrame, 600);
+        };
+
+        void scanFrame();
+      } catch (_error) {
+        setCodeScannerError(
+          "Camera access is blocked right now. Allow camera access on your phone to scan a QR code.",
+        );
+        setIsStartingScanner(false);
+      }
+    };
+
+    void startScanner();
+
+    return () => {
+      cancelled = true;
+      stopCodeScanner();
+    };
+  }, [isCodeScannerOpen, onCodePayloadDetected]);
+
   return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSubmit();
-      }}
-      className="mt-10 rounded-[2rem] border border-hairline bg-surface p-4 shadow-elegant sm:p-6"
-    >
+    <>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+        className="mt-10 rounded-[2rem] border border-hairline bg-surface p-4 shadow-elegant sm:p-6"
+      >
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <label className="space-y-2">
           <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
@@ -802,9 +1565,9 @@ function ScanForm({
         </label>
 
         <label className="space-y-2">
-          <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            Target country
-          </span>
+            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Country
+            </span>
           <select
             value={market}
             onChange={(event) => onMarketChange(event.target.value)}
@@ -822,17 +1585,14 @@ function ScanForm({
         </label>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-dashed border-jade/30 bg-jade/5 p-4">
+      <div className="mt-4 rounded-[1.75rem] border border-dashed border-jade/30 bg-jade/5 p-4 sm:p-5">
         <div className="flex flex-col gap-4 md:flex-row md:items-start">
           <div className="flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-jade">
                 <Camera className="h-3.5 w-3.5" />
-                Scan from label photo
+                Step 1 - Scan from label photo
               </div>
-              <span className="rounded-full border border-jade/20 bg-background/60 px-2.5 py-1 text-[10px] text-jade">
-                Optional fast path
-              </span>
             </div>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               Upload or take a photo of the ingredient label. Halal Intelligence extracts text only,
@@ -869,6 +1629,14 @@ function ScanForm({
               </label>
               <button
                 type="button"
+                onClick={() => setIsCodeScannerOpen(true)}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background"
+              >
+                <ScanLine className="h-4 w-4 text-jade" />
+                Scan code
+              </button>
+              <button
+                type="button"
                 onClick={onExtractImage}
                 disabled={isExtracting || !imagePreviewUrl}
                 className="inline-flex items-center justify-center gap-2 rounded-xl border border-jade/25 bg-jade/10 px-4 py-2.5 text-sm font-medium text-jade transition-colors hover:bg-jade/15 disabled:cursor-not-allowed disabled:opacity-50"
@@ -901,7 +1669,7 @@ function ScanForm({
             <div>
               <div className="flex items-center gap-2 text-xs text-jade">
                 <ClipboardCheck className="h-3.5 w-3.5" />
-                Extracted ingredients applied to editor
+                Step 2 - Review extracted ingredients
               </div>
               <p className="mt-2 text-sm leading-relaxed text-foreground/85">
                 {extractionResult.ingredients.length > 0
@@ -913,13 +1681,13 @@ function ScanForm({
                 {extractionResult.needs_review ? "Yes" : "No"}
               </p>
               <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                Step 2 is ready: check the editable ingredient list below, fix anything OCR missed,
+                Review the editable ingredient list below, fix anything OCR missed,
                 then scan the reviewed list.
               </p>
             </div>
             <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
               {extractionResult.visual_warning && (
-                <div className="rounded-xl border border-verdict-mushbooh/25 bg-verdict-mushbooh/10 px-3 py-2 text-[11px] text-foreground/80">
+                <div className="rounded-lg border border-verdict-mushbooh/25 bg-verdict-mushbooh/10 px-2.5 py-1.5 text-[10px] text-foreground/80">
                   {extractionResult.visual_warning}
                 </div>
               )}
@@ -927,13 +1695,13 @@ function ScanForm({
                 extractionResult.warnings.map((warning) => (
                   <div
                     key={warning}
-                    className="rounded-xl border border-hairline bg-surface/80 px-3 py-2"
+                    className="rounded-lg border border-hairline bg-surface/80 px-2.5 py-1.5 text-[10px]"
                   >
                     {warning}
                   </div>
                 ))
               ) : (
-                <div className="rounded-xl border border-hairline bg-surface/80 px-3 py-2">
+                <div className="rounded-lg border border-hairline bg-surface/80 px-2.5 py-1.5 text-[10px]">
                   Review the editable ingredient box below before scanning.
                 </div>
               )}
@@ -942,11 +1710,14 @@ function ScanForm({
         )}
       </div>
 
-      <label className="mt-4 block space-y-2">
+      <label
+        ref={ingredientEditorRef}
+        className="mt-4 block space-y-2 rounded-[1.75rem] border border-hairline bg-background/25 p-4 shadow-soft"
+      >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              Ingredients
+              Step 2 - Ingredients
             </span>
             <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
               {hasExtractedIngredients
@@ -964,7 +1735,9 @@ function ScanForm({
           onChange={(event) => onIngredientsChange(event.target.value)}
           placeholder="One ingredient per line, or separate with commas"
           rows={7}
-          className="w-full resize-none rounded-2xl border border-hairline bg-background/50 px-4 py-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-muted-foreground focus:border-jade/50"
+          className={`w-full resize-none rounded-2xl border bg-background/50 px-4 py-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-muted-foreground focus:border-jade/50 ${
+            hasExtractedIngredients ? "border-jade/35 shadow-[0_0_0_1px_rgba(83,188,131,0.12)]" : "border-hairline"
+          }`}
         />
       </label>
 
@@ -998,7 +1771,50 @@ function ScanForm({
           {scanButtonText}
         </button>
       </div>
-    </form>
+      <p className="mt-2 text-center text-[11px] leading-relaxed text-muted-foreground">
+        Step 3 - Run the scan to see blockers, review items, low-risk ingredients, and confidence
+      </p>
+      </form>
+
+      <Dialog open={isCodeScannerOpen} onOpenChange={setIsCodeScannerOpen}>
+        <DialogContent className="max-w-md rounded-3xl border border-hairline bg-surface p-0 sm:rounded-3xl">
+          <DialogHeader className="px-5 pt-5">
+            <DialogTitle>Scan a product code</DialogTitle>
+            <DialogDescription>
+              Use the back camera to scan a QR code that contains ingredients or a linked product payload.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-5 pb-5">
+            <div className="overflow-hidden rounded-2xl border border-hairline bg-background/50">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="aspect-[3/4] w-full bg-black object-cover"
+              />
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+              {isStartingScanner ? "Opening camera..." : codeScannerHint}
+            </p>
+            {codeScannerError && (
+              <div className="mt-3 rounded-xl border border-verdict-mushbooh/25 bg-verdict-mushbooh/10 p-3 text-xs leading-relaxed text-foreground/85">
+                {codeScannerError}
+              </div>
+            )}
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => setIsCodeScannerOpen(false)}
+                className="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background"
+              >
+                Close scanner
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -1066,23 +1882,20 @@ function ReportHeader({
   isLoading: boolean;
   onEdit: () => void;
 }) {
-  const readiness = report ? getReadinessCopy(report.overall_status) : null;
-  const confidence = report ? getReadinessConfidence(report.overall_status) : null;
+  const reportMarket = report?.market ?? market;
+  const readiness = report ? getReadinessCopy(report.overall_status, reportMarket) : null;
+  const confidence = report ? getReadinessConfidence(report.overall_status, reportMarket) : null;
 
   return (
     <div className="relative overflow-hidden rounded-[2rem] border border-hairline bg-surface p-5 shadow-elegant sm:p-6">
       <div className="pointer-events-none absolute -right-24 -top-24 h-56 w-56 rounded-full bg-jade/10 blur-3xl" />
       <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <PackageCheck className="h-3.5 w-3.5 text-jade" />
-            Product scan
-          </div>
           <h1 className="font-display mt-2 text-2xl font-light leading-tight sm:text-3xl">
             {report?.product_name || productName}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {getDomainLabel(domain)} analysis for target market: {market}
+            {getDomainLabel(domain)} analysis for target market: {reportMarket}
           </p>
           {confidence && (
             <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-jade/25 bg-jade/5 px-3 py-1.5 text-xs text-jade">
@@ -1138,7 +1951,7 @@ function TabStrip({
     { id: "summary" as const, label: "Summary", count: null },
     { id: "blockers" as const, label: "Blockers", count: report.blockers.length },
     { id: "warnings" as const, label: "Warnings", count: report.warnings.length },
-    { id: "safe" as const, label: "Safe", count: report.safe.length },
+    { id: "safe" as const, label: "Low Risk", count: report.safe.length },
     { id: "history" as const, label: "History", count: report.history?.length ?? 0 },
   ];
 
@@ -1167,8 +1980,10 @@ function TabStrip({
 }
 
 function SummaryTab({ report }: { report: ComplianceReport }) {
-  const readiness = getReadinessCopy(report.overall_status);
-  const confidence = getReadinessConfidence(report.overall_status);
+  const market = report.market ?? "Malaysia";
+  const readiness = getReadinessCopy(report.overall_status, market);
+  const confidence = getReadinessConfidence(report.overall_status, market);
+  const checklist = getMarketChecklist(report, market);
   const cards = [
     {
       label: "Ingredients",
@@ -1198,10 +2013,6 @@ function SummaryTab({ report }: { report: ComplianceReport }) {
       <div className="overflow-hidden rounded-[1.75rem] border border-hairline bg-surface">
         <div className="grid gap-5 p-5 sm:grid-cols-[1.1fr_0.9fr] sm:p-6">
           <div>
-            <div className="flex items-center gap-2 text-xs text-jade">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Readiness decision
-            </div>
             <h2 className="font-display mt-3 text-3xl font-light leading-tight sm:text-4xl">
               {report.overall_status}
             </h2>
@@ -1224,9 +2035,6 @@ function SummaryTab({ report }: { report: ComplianceReport }) {
             <p className="mt-2 text-sm leading-relaxed text-foreground/85">{readiness.action}</p>
           </div>
         </div>
-        <div className="border-t border-hairline bg-background/25 px-5 py-3 text-xs leading-relaxed text-muted-foreground sm:px-6">
-          {report.summary.human_readable}
-        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -1240,6 +2048,31 @@ function SummaryTab({ report }: { report: ComplianceReport }) {
             <div className="mt-1 text-xs text-muted-foreground">{card.helper}</div>
           </div>
         ))}
+      </div>
+
+      <div className="rounded-2xl border border-hairline bg-surface p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+              Country checklist
+            </div>
+            <div className="mt-1 text-sm text-foreground">{market}</div>
+          </div>
+          <span className="rounded-full border border-jade/20 bg-jade/5 px-3 py-1 text-[10px] text-jade">
+            {getMarketProfile(market).readinessSummary[report.overall_status]}
+          </span>
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {checklist.map((item) => (
+            <div
+              key={`${market}-${item.label}`}
+              className="flex items-center justify-between rounded-xl border border-hairline bg-background/35 px-3 py-2.5 text-sm"
+            >
+              <span>{item.label}</span>
+              <span className="text-xs text-muted-foreground">{item.state}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
@@ -1397,7 +2230,7 @@ function ExpandableIngredientFinding({
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <AlertTriangle className={`h-3.5 w-3.5 ${styles.icon}`} />
-            Ingredient finding
+            Ingredient
           </div>
           <h3 className="font-display mt-1 truncate text-2xl font-light">{entry.ingredient}</h3>
         </div>
@@ -1492,6 +2325,43 @@ function InfoPanel({
   );
 }
 
+function GuestWorkspaceCard({
+  guestEmail,
+  historyCount,
+  onSignOut,
+}: {
+  guestEmail: string | null;
+  historyCount: number;
+  onSignOut: () => void;
+}) {
+  return (
+    <div className="mt-8 rounded-2xl border border-hairline bg-surface p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+            Signed in as
+          </div>
+          <div className="mt-1 text-sm text-foreground">{guestEmail ?? "Demo visitor"}</div>
+        </div>
+        {guestEmail && (
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="rounded-full border border-hairline px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+          >
+            Sign out
+          </button>
+        )}
+      </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+        {guestEmail
+          ? `This guest has ${historyCount} saved product scan${historyCount === 1 ? "" : "s"} on this device.`
+          : "Sign in with a mock email to keep saved product scan history on this device."}
+      </p>
+    </div>
+  );
+}
+
 function HistoryPanel({ history }: { history: ReportHistoryItem[] }) {
   return (
     <div className="mt-8">
@@ -1531,29 +2401,43 @@ function HistoryTab({ history }: { history: ReportHistoryItem[] }) {
 
 function HistoryMiniCard({ item }: { item: ReportHistoryItem }) {
   const latestReport = item.reports?.[0]?.result;
+  const historyLabel = latestReport?.domain
+    ? `Previous ${getDomainLabel(latestReport.domain)} scan`
+    : "Previous saved scan";
+  const historyMarket = latestReport?.market;
 
   return (
     <div className="rounded-xl border border-hairline bg-surface p-3">
       <div className="flex items-center gap-2 text-xs text-foreground/80">
         <History className="h-3.5 w-3.5 text-jade" />
-        {latestReport?.overall_status ?? "Saved scan"}
+        {historyLabel}
       </div>
-      <div className="mt-1 text-[11px] text-muted-foreground">{formatDate(item.created_at)}</div>
+      <div className="mt-1 text-[11px] text-muted-foreground">
+        {latestReport?.overall_status ?? "Saved scan"}
+        {historyMarket ? ` • ${historyMarket}` : ""}
+        {" • "}
+        {formatDate(item.created_at)}
+      </div>
     </div>
   );
 }
 
 function HistoryFullCard({ item }: { item: ReportHistoryItem }) {
   const latestReport = item.reports?.[0]?.result;
+  const historyLabel = latestReport?.domain
+    ? `Previous ${getDomainLabel(latestReport.domain)} scan`
+    : "Previous submission";
+  const historyMarket = latestReport?.market;
 
   return (
     <div className="rounded-2xl border border-hairline bg-surface p-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <div className="text-sm font-medium">
-            {latestReport?.product_name ?? "Previous submission"}
+          <div className="text-sm font-medium">{historyLabel}</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {historyMarket ? `${historyMarket} • ` : ""}
+            Submission ID: {item.id}
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">Submission ID: {item.id}</div>
         </div>
         <div className="text-xs text-muted-foreground">{formatDate(item.created_at)}</div>
       </div>
@@ -1590,7 +2474,7 @@ function LoadingCard() {
         <div>
           <div className="text-sm font-medium">Running product-level analysis</div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Building confidence from the backend scan, compliance graph, saved report, and history
+            Checking ingredients, evidence needs, saved reports, and previous scan history
           </p>
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-background">
             <div className="h-full w-3/4 animate-pulse rounded-full bg-jade" />
@@ -1627,7 +2511,7 @@ function MiniScanBar({
       <select
         value={market}
         onChange={(event) => onMarketChange(event.target.value)}
-        className="rounded-xl border border-hairline bg-surface px-3 py-2 text-sm outline-none focus:border-jade/50"
+        className="min-h-11 rounded-xl border border-hairline bg-surface px-3 py-2 text-sm outline-none focus:border-jade/50"
       >
         {MARKET_OPTIONS.map((option) => (
           <option key={option.value} value={option.value}>
@@ -1638,7 +2522,7 @@ function MiniScanBar({
       <select
         value={domain}
         onChange={(event) => onDomainChange(event.target.value as ComplianceDomain)}
-        className="rounded-xl border border-hairline bg-surface px-3 py-2 text-sm outline-none focus:border-jade/50"
+        className="min-h-11 rounded-xl border border-hairline bg-surface px-3 py-2 text-sm outline-none focus:border-jade/50"
       >
         {DOMAIN_OPTIONS.map((option) => (
           <option key={option.value} value={option.value}>
@@ -1649,7 +2533,7 @@ function MiniScanBar({
       <button
         type="submit"
         disabled={isLoading}
-        className="inline-flex items-center justify-center gap-2 rounded-xl bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
+        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
       >
         {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
         Rescan

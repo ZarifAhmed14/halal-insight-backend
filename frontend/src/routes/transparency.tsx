@@ -2,9 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   AlertTriangle,
   BookOpen,
-  Database,
   FileSearch,
-  GitBranch,
+  History,
   Layers,
   ShieldCheck,
 } from "lucide-react";
@@ -18,13 +17,13 @@ export const Route = createFileRoute("/transparency")({
       {
         name: "description",
         content:
-          "How Halal Intelligence validates inputs, normalizes ingredients, queries a compliance graph, and produces audit-friendly halal readiness reports.",
+          "How Halal Intelligence reviews ingredients, checks market requirements, and produces audit-friendly halal readiness reports.",
       },
       { property: "og:title", content: "Halal Intelligence Transparency & Methodology" },
       {
         property: "og:description",
         content:
-          "A clear look at Halal Intelligence's graph-based halal pre-certification readiness workflow.",
+          "A clear look at Halal Intelligence's halal pre-certification readiness workflow.",
       },
     ],
   }),
@@ -40,18 +39,18 @@ const ARCHITECTURE_STEPS = [
   },
   {
     icon: ShieldCheck,
-    title: "Validation",
+    title: "Quality check",
     description:
-      "The Edge Function rejects unsafe or incomplete requests before any graph query or database write happens.",
-  },
-  {
-    icon: GitBranch,
-    title: "Knowledge graph",
-    description:
-      "Neo4j connects ingredients to risk levels, affected markets, domains, and required evidence documents.",
+      "The system rejects incomplete product details before producing a readiness report.",
   },
   {
     icon: Layers,
+    title: "Compliance knowledge",
+    description:
+      "Ingredients are matched with risk levels, target markets, product categories, and required evidence documents.",
+  },
+  {
+    icon: History,
     title: "Readiness report",
     description:
       "Halal Intelligence groups findings into blockers, warnings, and low-risk items, then saves the report for audit history.",
@@ -78,10 +77,28 @@ const SAFETY_PRINCIPLES = [
       "Risk findings include reasoning and document requirements so manufacturers know what to fix or prove.",
   },
   {
-    icon: Database,
+    icon: History,
     title: "Auditable history",
     description:
-      "Each scan can be stored with its product, ingredients, market, report JSON, and previous submission history.",
+      "Each scan can be stored with its product, ingredients, market, final report, and previous submission history.",
+  },
+];
+
+const COUNTRY_REASONING = [
+  {
+    title: "Markets ask for different evidence",
+    description:
+      "The same ingredient can trigger different document expectations depending on where a product is being reviewed or exported.",
+  },
+  {
+    title: "Export readiness is not one-size-fits-all",
+    description:
+      "Country selection helps Halal Intelligence show the right review summary, evidence pack, and readiness checklist for that destination.",
+  },
+  {
+    title: "Judges should see market-aware compliance",
+    description:
+      "Using countries makes the product feel closer to real manufacturer workflows, where teams prepare differently for Malaysia, UAE, or UK review.",
   },
 ];
 
@@ -129,6 +146,20 @@ function TransparencyPage() {
                   <h3 className="font-display text-lg">{principle.title}</h3>
                   <p className="mt-1 text-sm text-muted-foreground">{principle.description}</p>
                 </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-16 sm:mt-24">
+          <h2 className="font-display text-2xl sm:text-3xl">Why countries matter</h2>
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
+            {COUNTRY_REASONING.map((item) => (
+              <div key={item.title} className="rounded-2xl border border-hairline bg-surface p-6">
+                <h3 className="font-display text-lg">{item.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                  {item.description}
+                </p>
               </div>
             ))}
           </div>

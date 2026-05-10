@@ -9,9 +9,9 @@ export function Logo({ className = "" }: { className?: string }) {
           </linearGradient>
         </defs>
         <g stroke="url(#logo-grad)" strokeWidth="1.35" fill="none" strokeLinejoin="round">
-          <path d="M16 3.5 19.2 10.2 26.5 8 24.3 15.3 30 20 22.5 21.2 22 28.5 16 24.3 10 28.5 9.5 21.2 2 20 7.7 15.3 5.5 8 12.8 10.2 16 3.5Z" />
-          <circle cx="16" cy="16" r="5.2" fill="url(#logo-grad)" opacity="0.16" />
-          <circle cx="16" cy="16" r="2.3" fill="url(#logo-grad)" opacity="0.95" />
+          <path d="M16 4.5 25.5 8.5V15c0 6.1-4 10.8-9.5 12.5C10.5 25.8 6.5 21.1 6.5 15V8.5L16 4.5Z" />
+          <path d="M11 16.3 14.1 19.2 21 12.4" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M16 8.2V12.4" strokeLinecap="round" />
         </g>
       </svg>
       <span className="font-display text-[15px] font-medium tracking-tight text-foreground">

@@ -1,7 +1,9 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { ArrowRight, LockKeyhole, ShieldCheck } from "lucide-react";
 import { Nav } from "@/components/site/Nav";
 import { Footer } from "@/components/site/Footer";
+import { isGuestEmailValid, setActiveGuestEmail } from "@/lib/guest-workspace";
 
 export const Route = createFileRoute("/sign-in")({
   head: () => ({
@@ -17,6 +19,21 @@ export const Route = createFileRoute("/sign-in")({
 });
 
 function SignInPage() {
+  const navigate = useNavigate();
+  const [guestEmail, setGuestEmail] = useState("guest");
+  const [error, setError] = useState<string | null>(null);
+
+  const handleGuestEntry = async () => {
+    if (!isGuestEmailValid(guestEmail)) {
+      setError("Enter a short guest name to continue.");
+      return;
+    }
+
+    setActiveGuestEmail(guestEmail);
+    setError(null);
+    await navigate({ to: "/assistant" });
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <div
@@ -45,34 +62,38 @@ function SignInPage() {
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-jade/10 text-jade">
               <LockKeyhole className="h-5 w-5" />
             </div>
-            <h2 className="font-display mt-5 text-2xl font-light">Workspace sign in</h2>
+            <h2 className="font-display mt-5 text-2xl font-light">Sign in</h2>
             <div className="mt-5 space-y-3">
               <input
-                type="email"
-                placeholder="work@email.com"
+                type="text"
+                value={guestEmail}
+                onChange={(event) => {
+                  setGuestEmail(event.target.value);
+                  if (error) {
+                    setError(null);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleGuestEntry();
+                  }
+                }}
+                placeholder="guest"
                 className="w-full rounded-2xl border border-hairline bg-background/50 px-4 py-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-jade/50"
               />
               <button
                 type="button"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-hairline bg-background/60 px-5 py-3 text-sm font-medium transition-colors hover:bg-background"
+                onClick={() => void handleGuestEntry()}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-jade/25 bg-jade/10 px-5 py-3 text-sm font-medium text-jade transition-colors hover:bg-jade/15"
               >
-                Request access link
+                Sign in
                 <ArrowRight className="h-4 w-4" />
               </button>
-            </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              <Link
-                to="/assistant"
-                className="inline-flex items-center justify-center rounded-xl border border-jade/25 bg-jade/5 px-4 py-2.5 text-sm text-jade transition-colors hover:bg-jade/10"
-              >
-                Continue demo
-              </Link>
-              <a
-                href="/enterprise#contact"
-                className="inline-flex items-center justify-center rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background"
-              >
-                Contact team
-              </a>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                This demo signs in instantly and keeps product scan history on this device.
+              </p>
+              {error && <p className="text-sm text-verdict-haram">{error}</p>}
             </div>
           </section>
         </div>

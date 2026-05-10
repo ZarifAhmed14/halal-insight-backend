@@ -29,6 +29,7 @@ export type ReportHistoryItem = {
 export type ComplianceReport = {
   product_name: string;
   domain?: ComplianceDomain;
+  market?: string;
   overall_status: OverallStatus;
   summary: ComplianceSummary;
   blockers: ComplianceEntry[];

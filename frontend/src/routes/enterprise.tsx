@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Building2, Code, FileSearch, Globe2, Layers, Lock } from "lucide-react";
+import { ArrowRight, Building2, ClipboardCheck, Globe2, Layers, Lock } from "lucide-react";
 import { Nav } from "@/components/site/Nav";
 import { Footer } from "@/components/site/Footer";
 
@@ -16,7 +16,7 @@ export const Route = createFileRoute("/enterprise")({
       {
         property: "og:description",
         content:
-          "A graph-backed halal pre-certification readiness layer for manufacturers and compliance teams.",
+          "A guided halal pre-certification readiness layer for manufacturers and compliance teams.",
       },
     ],
   }),
@@ -25,22 +25,22 @@ export const Route = createFileRoute("/enterprise")({
 
 const ENTERPRISE_FEATURES = [
   {
-    icon: Code,
-    title: "Readiness API",
+    icon: ClipboardCheck,
+    title: "Readiness checks",
     description:
-      "Run product scans from internal QA tools, supplier portals, or export workflows using the same analyze-food backend.",
+      "Check product formulas from QA, supplier, or export workflows using one consistent review process.",
   },
   {
     icon: Lock,
-    title: "Private data flow",
+    title: "Private product records",
     description:
-      "Keep product formulas, supplier evidence, and scan history inside your Supabase project and controlled environment.",
+      "Keep product formulas, supplier evidence, and scan history in a controlled workspace for your team.",
   },
   {
     icon: Layers,
-    title: "Domain-aware graph",
+    title: "Domain-aware rules",
     description:
-      "Extend Neo4j with food, cosmetics, pharmaceuticals, and export rules without rewriting the frontend.",
+      "Review food today, then expand the same workflow to cosmetics, pharmaceuticals, and export readiness.",
   },
   {
     icon: Building2,
@@ -48,13 +48,6 @@ const ENTERPRISE_FEATURES = [
     description:
       "Store product submissions and generated reports so reviewers can see what changed between scans.",
   },
-];
-
-const API_ACTIONS = [
-  { label: "Analyze product", target: "/assistant" },
-  { label: "Extract label image", target: "/assistant" },
-  { label: "View report history", target: "/assistant" },
-  { label: "Contact integration team", target: "#contact" },
 ];
 
 const REGIONS = [
@@ -129,7 +122,7 @@ function EnterprisePage() {
           <div className="rounded-[2rem] border border-hairline bg-surface p-6 shadow-elegant">
             <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-jade">
               <Layers className="h-4 w-4" />
-              Graph placement
+              Review logic
             </div>
             <div className="mt-6 rounded-2xl border border-hairline bg-background/40 p-5">
               <div className="flex items-center justify-between">
@@ -146,8 +139,8 @@ function EnterprisePage() {
                 </span>
               </div>
               <p className="mt-5 text-sm leading-relaxed text-muted-foreground">
-                Neo4j stays behind the compliance API, while the frontend shows only reviewer-ready
-                ingredient findings and evidence requirements.
+                The system turns ingredients into clear risk findings, required evidence, and
+                reviewer-ready next steps.
               </p>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -184,64 +177,6 @@ function EnterprisePage() {
           ))}
         </div>
 
-        <section className="mt-16 overflow-hidden rounded-2xl border border-hairline bg-ink shadow-elegant sm:mt-20 sm:rounded-3xl">
-          <div className="flex flex-col gap-4 border-b border-hairline px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-jade">
-                <FileSearch className="h-4 w-4" />
-                API section
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Four demo actions for the backend integration flow
-              </p>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              {API_ACTIONS.map((action) =>
-                action.target.startsWith("#") ? (
-                  <a
-                    key={action.label}
-                    href={action.target}
-                    className="rounded-xl border border-hairline bg-surface/60 px-3 py-2 text-center text-xs transition-colors hover:bg-surface"
-                  >
-                    {action.label}
-                  </a>
-                ) : (
-                  <Link
-                    key={action.label}
-                    to={action.target}
-                    className="rounded-xl border border-hairline bg-surface/60 px-3 py-2 text-center text-xs transition-colors hover:bg-surface"
-                  >
-                    {action.label}
-                  </Link>
-                ),
-              )}
-            </div>
-          </div>
-          <pre className="overflow-x-auto p-6 text-[13px] leading-relaxed text-foreground/85">
-            {`{
-  "ingredients": ["E471", "Gelatin", "Vanilla Flavor"],
-  "market": "Malaysia",
-  "domain": "food"
-}
-
--> {
-  "overall_status": "Not Ready",
-  "summary": {
-    "total_ingredients": 3,
-    "blockers_count": 2,
-    "warnings_count": 0
-  },
-  "blockers": [
-    {
-      "ingredient": "Gelatin",
-      "risk": "Critical",
-      "required_documents": ["Halal certificate", "Animal-origin statement"]
-    }
-  ]
-}`}
-          </pre>
-        </section>
-
         <div
           id="contact"
           className="mt-16 rounded-2xl border border-hairline bg-surface p-8 text-center sm:mt-20 sm:rounded-3xl sm:p-10"
@@ -250,8 +185,8 @@ function EnterprisePage() {
             Build a cleaner certification workflow
           </h2>
           <p className="mt-3 text-muted-foreground">
-            Start with the assistant, then extend the graph with your supplier evidence and
-            market-specific rules.
+            Start with the assistant, then add your supplier evidence and market-specific
+            requirements.
           </p>
           <a
             href="mailto:partners@halalintelligence.app"

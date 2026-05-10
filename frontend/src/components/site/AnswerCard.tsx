@@ -36,9 +36,11 @@ export function AnswerCard() {
         {/* Answer */}
         <p className="mt-5 text-[15px] leading-relaxed text-foreground/85 text-pretty">
           The product needs review because{" "}
-          <span className="text-foreground">E471 and gelatin require source evidence</span>. The
-          safer path is to collect supplier declarations and replace any animal-derived ingredient
-          that cannot be certified.
+          <span className="text-foreground">
+            gelatin and one emulsifier still need source proof
+          </span>
+          . The safer path is to collect supplier declarations and replace any animal-derived
+          ingredient that cannot be certified.
         </p>
 
         {/* Reasoning chain */}
@@ -49,7 +51,7 @@ export function AnswerCard() {
           <ol className="mt-3 space-y-2.5 text-sm">
             {[
               "Normalize the ingredient list",
-              "Match ingredients against the Neo4j compliance graph",
+              "Compare ingredients with the compliance knowledge base",
               "Group findings into blockers, warnings, and low-risk items",
               "Return document requirements for reviewer follow-up",
             ].map((step, i) => (
