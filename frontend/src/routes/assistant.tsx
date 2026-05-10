@@ -229,12 +229,180 @@ const MARKET_PROFILES: Record<string, MarketProfile> = {
   },
 };
 
+type DomainIngredientRule = {
+  domains: ComplianceDomain[];
+  matchers: string[];
+  risk: "Critical" | "High" | "Medium" | "Low";
+  reasoning: string;
+  requiredDocuments: string[];
+};
+
+const DOMAIN_INGREDIENT_RULES: DomainIngredientRule[] = [
+  {
+    domains: ["cosmetics"],
+    matchers: ["alcohol", "ethanol", "isopropyl alcohol", "benzyl alcohol"],
+    risk: "Medium",
+    reasoning:
+      "Alcohol in cosmetics needs source and formulation review before approval because concentration and use can change the halal decision.",
+    requiredDocuments: ["Alcohol content statement", "Supplier declaration"],
+  },
+  {
+    domains: ["cosmetics", "pharmaceuticals"],
+    matchers: ["collagen"],
+    risk: "High",
+    reasoning:
+      "Collagen is often animal-derived, so halal review depends on verified species, source, and processing evidence.",
+    requiredDocuments: ["Animal-origin statement", "Halal certificate", "Supplier declaration"],
+  },
+  {
+    domains: ["cosmetics", "pharmaceuticals"],
+    matchers: ["glycerin", "glycerol"],
+    risk: "Medium",
+    reasoning:
+      "Glycerin may be plant, synthetic, or animal-derived, so the source must be confirmed before it can be cleared.",
+    requiredDocuments: ["Vegan or plant-origin proof", "Supplier declaration"],
+  },
+  {
+    domains: ["cosmetics"],
+    matchers: ["keratin"],
+    risk: "High",
+    reasoning:
+      "Keratin is commonly animal-derived, so it should stay under strict review until halal source evidence is available.",
+    requiredDocuments: ["Animal-origin statement", "Halal certificate"],
+  },
+  {
+    domains: ["cosmetics"],
+    matchers: ["lanolin"],
+    risk: "Medium",
+    reasoning:
+      "Lanolin comes from sheep wool, so the animal-source and processing route should be documented for halal cosmetic review.",
+    requiredDocuments: ["Animal-origin statement", "Supplier declaration"],
+  },
+  {
+    domains: ["cosmetics"],
+    matchers: ["carmine", "cochineal"],
+    risk: "Critical",
+    reasoning:
+      "Carmine is insect-derived, so it is a strong halal concern and should not be cleared without careful review.",
+    requiredDocuments: ["Animal-origin statement", "Halal certificate"],
+  },
+  {
+    domains: ["cosmetics"],
+    matchers: ["fragrance", "parfum", "perfume"],
+    risk: "Medium",
+    reasoning:
+      "Fragrance blends can hide alcohol carriers or animal-derived subcomponents, so formulation disclosure is needed before halal review.",
+    requiredDocuments: ["Alcohol content statement", "Supplier declaration", "Ingredient specification sheet"],
+  },
+  {
+    domains: ["cosmetics", "pharmaceuticals"],
+    matchers: ["stearic acid"],
+    risk: "Medium",
+    reasoning:
+      "Stearic acid can come from plant or animal fat, so halal review depends on clear source documentation.",
+    requiredDocuments: ["Animal-origin statement", "Vegan or plant-origin proof", "Supplier declaration"],
+  },
+  {
+    domains: ["cosmetics"],
+    matchers: ["cetearyl alcohol", "cetyl alcohol", "stearyl alcohol"],
+    risk: "Medium",
+    reasoning:
+      "Fatty alcohols such as cetearyl alcohol can be plant- or animal-derived, so source evidence is needed before approval.",
+    requiredDocuments: ["Vegan or plant-origin proof", "Supplier declaration"],
+  },
+  {
+    domains: ["cosmetics", "pharmaceuticals"],
+    matchers: ["polysorbate", "sorbitan monostearate", "sorbitan tristearate"],
+    risk: "Medium",
+    reasoning:
+      "Polysorbates and related emulsifiers may involve fatty-acid feedstocks that need source confirmation during halal review.",
+    requiredDocuments: ["Ingredient specification sheet", "Supplier declaration", "Vegan or plant-origin proof"],
+  },
+  {
+    domains: ["cosmetics", "pharmaceuticals"],
+    matchers: ["shellac"],
+    risk: "High",
+    reasoning:
+      "Shellac is insect-derived, so it should be treated as a strong halal concern until reviewed carefully.",
+    requiredDocuments: ["Animal-origin statement", "Halal certificate"],
+  },
+  {
+    domains: ["pharmaceuticals"],
+    matchers: ["gelatin", "gelatine"],
+    risk: "Critical",
+    reasoning:
+      "Gelatin in capsules or excipients is a major halal concern because species and halal processing must be verified clearly.",
+    requiredDocuments: ["Gelatin source certificate", "Capsule shell declaration", "Halal certificate"],
+  },
+  {
+    domains: ["pharmaceuticals"],
+    matchers: ["magnesium stearate"],
+    risk: "Medium",
+    reasoning:
+      "Magnesium stearate is a common excipient, but its fatty-acid source should be verified before halal review can treat it as low risk.",
+    requiredDocuments: ["Excipient origin statement", "Supplier declaration"],
+  },
+  {
+    domains: ["pharmaceuticals"],
+    matchers: ["pepsin", "trypsin"],
+    risk: "High",
+    reasoning:
+      "Enzymes such as pepsin and trypsin can come from animal sources, so halal review depends on verified origin and processing evidence.",
+    requiredDocuments: ["Animal-origin statement", "Halal certificate", "Scholar or technical review note"],
+  },
+  {
+    domains: ["pharmaceuticals"],
+    matchers: ["capsule shell", "softgel", "soft gel", "hard capsule", "capsule material"],
+    risk: "High",
+    reasoning:
+      "Capsule shell materials often require dedicated halal review because they may contain gelatin or other animal-derived inputs.",
+    requiredDocuments: ["Capsule shell declaration", "Gelatin source certificate", "Halal certificate"],
+  },
+];
+
 function getDomainLabel(domain: ComplianceDomain | undefined): string {
   return DOMAIN_OPTIONS.find((option) => option.value === domain)?.label ?? "Food";
 }
 
 function getMarketLabel(market: string): string {
   return MARKET_OPTIONS.find((option) => option.value === market)?.label ?? market;
+}
+
+function getRiskPriority(risk: string): number {
+  const normalizedRisk = risk.trim().toLowerCase();
+
+  if (normalizedRisk === "critical") {
+    return 4;
+  }
+
+  if (normalizedRisk === "high") {
+    return 3;
+  }
+
+  if (normalizedRisk === "medium") {
+    return 2;
+  }
+
+  if (normalizedRisk === "low") {
+    return 1;
+  }
+
+  return 0;
+}
+
+function findDomainIngredientRule(
+  domain: ComplianceDomain,
+  ingredient: string,
+): DomainIngredientRule | null {
+  const normalizedIngredient = ingredient.trim().toLowerCase();
+
+  return (
+    DOMAIN_INGREDIENT_RULES.find(
+      (rule) =>
+        rule.domains.includes(domain) &&
+        rule.matchers.some((matcher) => normalizedIngredient.includes(matcher)),
+    ) ?? null
+  );
 }
 
 function getMarketProfile(market: string): MarketProfile {
@@ -253,6 +421,58 @@ function getMarketProfile(market: string): MarketProfile {
       strictReviewIngredients: ["flavor", "gelatin"],
     }
   );
+}
+
+function mergeUniqueStrings(left: string[], right: string[]): string[] {
+  return Array.from(new Set([...left, ...right]));
+}
+
+function applyDomainRuleToEntry(
+  entry: ComplianceEntry,
+  domain: ComplianceDomain,
+): ComplianceEntry {
+  const matchingRule = findDomainIngredientRule(domain, entry.ingredient);
+
+  if (!matchingRule) {
+    return entry;
+  }
+
+  return {
+    ...entry,
+    risk: matchingRule.risk,
+    reasoning: matchingRule.reasoning,
+    required_documents: mergeUniqueStrings(entry.required_documents, matchingRule.requiredDocuments),
+  };
+}
+
+function applyDomainKnowledgeToReport(
+  report: ComplianceReport,
+  domain: ComplianceDomain,
+): ComplianceReport {
+  const nextEntries = [...report.blockers, ...report.warnings, ...report.safe].map((entry) =>
+    applyDomainRuleToEntry(entry, domain),
+  );
+
+  const blockers = nextEntries.filter((entry) => getRiskPriority(entry.risk) >= 3);
+  const warnings = nextEntries.filter((entry) => getRiskPriority(entry.risk) === 2);
+  const safe = nextEntries.filter((entry) => getRiskPriority(entry.risk) === 1);
+  const overall_status: OverallStatus =
+    blockers.length > 0 ? "Not Ready" : warnings.length > 0 ? "Needs Review" : "Low Risk";
+
+  return {
+    ...report,
+    domain,
+    overall_status,
+    blockers,
+    warnings,
+    safe,
+    summary: {
+      ...report.summary,
+      blockers_count: blockers.length,
+      warnings_count: warnings.length,
+      human_readable: `${report.product_name} was analyzed for ${getDomainLabel(domain)} across ${report.summary.total_ingredients} ingredient(s): ${blockers.length} blocker(s), ${warnings.length} warning(s), and ${safe.length} low-risk ingredient(s). Overall status: ${overall_status}.`,
+    },
+  };
 }
 
 function buildInternalProductName({
@@ -622,7 +842,8 @@ function AssistantPage() {
         domain: nextDomain,
       });
 
-      const marketAwareReport = applyMarketRulesToReport(nextReport, nextMarket.trim());
+      const domainAwareReport = applyDomainKnowledgeToReport(nextReport, nextDomain);
+      const marketAwareReport = applyMarketRulesToReport(domainAwareReport, nextMarket.trim());
       const nextHistory = guestEmail ? saveGuestReport(guestEmail, marketAwareReport) : guestHistory;
       setGuestHistory(nextHistory);
       setReport({
@@ -1229,6 +1450,15 @@ function getReadinessConfidence(status: OverallStatus, market: string): number {
 
 function simplifyReasoning(entry: ComplianceEntry): string {
   const ingredient = entry.ingredient.toLowerCase();
+
+  const matchingRule =
+    DOMAIN_INGREDIENT_RULES.find((rule) =>
+      rule.matchers.some((matcher) => ingredient.includes(matcher)),
+    ) ?? null;
+
+  if (matchingRule) {
+    return matchingRule.reasoning;
+  }
 
   if (ingredient.includes("gelatin")) {
     return "Gelatin is usually animal-derived, so the source and halal certificate must be checked.";

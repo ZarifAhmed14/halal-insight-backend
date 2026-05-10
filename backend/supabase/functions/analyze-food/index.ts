@@ -64,9 +64,138 @@ type AggregatedComplianceEntry = { // This type describes the temporary aggregat
   required_documents: Set<string>; // This field stores unique required documents before they are converted back into an array.
   affected_markets: Set<string>; // This field stores unique affected markets before they are converted back into an array.
 }; // This line closes the AggregatedComplianceEntry type definition so the aggregation shape is explicit.
+type IngredientKnowledgeRule = { // This type describes one local fallback knowledge rule used when graph coverage is incomplete.
+  domains: ComplianceDomain[]; // This field stores which product domains should use the rule.
+  matchers: string[]; // This field stores lowercase ingredient fragments that should trigger the rule.
+  risk: "Critical" | "High" | "Medium" | "Low"; // This field stores the fallback severity for matching ingredients.
+  reasoning: string; // This field stores the plain-language explanation returned when the rule matches.
+  documents: string[]; // This field stores the evidence list returned with the fallback rule.
+}; // This line closes the IngredientKnowledgeRule type definition so local fallback knowledge stays explicit.
 let cachedDriver: neo4j.Driver | null = null; // This variable stores a reusable Neo4j driver so we do not reconnect on every request.
 let cachedSupabaseClient: SupabaseClient | null = null; // This variable stores a reusable Supabase client so we do not recreate it on every request.
 const allowedDomains: ComplianceDomain[] = ["food", "cosmetics", "export_compliance", "pharmaceuticals"]; // This array defines the domain rollout order, with export compliance intentionally second after cosmetics.
+const ingredientKnowledgeRules: IngredientKnowledgeRule[] = [ // This local knowledge map keeps cosmetics and pharma scans useful before every ingredient exists in Neo4j.
+  {
+    domains: ["cosmetics"],
+    matchers: ["alcohol", "ethanol", "isopropyl alcohol", "benzyl alcohol"],
+    risk: "Medium",
+    reasoning:
+      "Alcohol in cosmetics can be acceptable or problematic depending on source, concentration, and function, so supplier evidence is needed before approval.",
+    documents: ["Alcohol content statement", "Supplier declaration"],
+  },
+  {
+    domains: ["cosmetics", "pharmaceuticals"],
+    matchers: ["collagen"],
+    risk: "High",
+    reasoning:
+      "Collagen is often animal-derived, so halal readiness depends on verified species, source, and processing evidence.",
+    documents: ["Animal-origin statement", "Halal certificate", "Supplier declaration"],
+  },
+  {
+    domains: ["cosmetics", "pharmaceuticals"],
+    matchers: ["glycerin", "glycerol"],
+    risk: "Medium",
+    reasoning:
+      "Glycerin may be plant, synthetic, or animal-derived, so the manufacturer needs origin evidence before halal review can clear it.",
+    documents: ["Vegan or plant-origin proof", "Supplier declaration"],
+  },
+  {
+    domains: ["cosmetics"],
+    matchers: ["keratin"],
+    risk: "High",
+    reasoning:
+      "Keratin is commonly sourced from animal material, so it should stay under strict review until halal source evidence is available.",
+    documents: ["Animal-origin statement", "Halal certificate"],
+  },
+  {
+    domains: ["cosmetics"],
+    matchers: ["lanolin"],
+    risk: "Medium",
+    reasoning:
+      "Lanolin comes from sheep wool, so the animal-source and processing route should be documented for halal cosmetic review.",
+    documents: ["Animal-origin statement", "Supplier declaration"],
+  },
+  {
+    domains: ["cosmetics"],
+    matchers: ["carmine", "cochineal"],
+    risk: "Critical",
+    reasoning:
+      "Carmine is insect-derived, so it is a high-priority halal concern and should not be cleared without strong review evidence.",
+    documents: ["Animal-origin statement", "Halal certificate"],
+  },
+  {
+    domains: ["cosmetics"],
+    matchers: ["fragrance", "parfum", "perfume"],
+    risk: "Medium",
+    reasoning:
+      "Fragrance blends can hide alcohol carriers or animal-derived subcomponents, so formulation disclosure is needed before halal review.",
+    documents: ["Alcohol content statement", "Supplier declaration", "Ingredient specification sheet"],
+  },
+  {
+    domains: ["cosmetics", "pharmaceuticals"],
+    matchers: ["stearic acid"],
+    risk: "Medium",
+    reasoning:
+      "Stearic acid can come from plant or animal fat, so halal review depends on clear source documentation.",
+    documents: ["Animal-origin statement", "Vegan or plant-origin proof", "Supplier declaration"],
+  },
+  {
+    domains: ["cosmetics"],
+    matchers: ["cetearyl alcohol", "cetyl alcohol", "stearyl alcohol"],
+    risk: "Medium",
+    reasoning:
+      "Fatty alcohols such as cetearyl alcohol can be plant- or animal-derived, so source evidence is needed before approval.",
+    documents: ["Vegan or plant-origin proof", "Supplier declaration"],
+  },
+  {
+    domains: ["cosmetics", "pharmaceuticals"],
+    matchers: ["polysorbate", "sorbitan monostearate", "sorbitan tristearate"],
+    risk: "Medium",
+    reasoning:
+      "Polysorbates and related emulsifiers may involve fatty-acid feedstocks that need source confirmation during halal review.",
+    documents: ["Ingredient specification sheet", "Supplier declaration", "Vegan or plant-origin proof"],
+  },
+  {
+    domains: ["cosmetics", "pharmaceuticals"],
+    matchers: ["shellac"],
+    risk: "High",
+    reasoning:
+      "Shellac is insect-derived, so it should be treated as a strong halal concern until reviewed carefully.",
+    documents: ["Animal-origin statement", "Halal certificate"],
+  },
+  {
+    domains: ["pharmaceuticals"],
+    matchers: ["gelatin", "gelatine"],
+    risk: "Critical",
+    reasoning:
+      "Gelatin in capsules or excipients is a major halal concern because species and halal processing must be verified clearly.",
+    documents: ["Gelatin source certificate", "Capsule shell declaration", "Halal certificate"],
+  },
+  {
+    domains: ["pharmaceuticals"],
+    matchers: ["magnesium stearate"],
+    risk: "Medium",
+    reasoning:
+      "Magnesium stearate is a common excipient, but its fatty-acid source should be verified before halal review can treat it as low risk.",
+    documents: ["Excipient origin statement", "Supplier declaration"],
+  },
+  {
+    domains: ["pharmaceuticals"],
+    matchers: ["pepsin", "trypsin"],
+    risk: "High",
+    reasoning:
+      "Enzymes such as pepsin and trypsin can come from animal sources, so halal review depends on verified origin and processing evidence.",
+    documents: ["Animal-origin statement", "Halal certificate", "Scholar or technical review note"],
+  },
+  {
+    domains: ["pharmaceuticals"],
+    matchers: ["capsule shell", "softgel", "soft gel", "hard capsule", "capsule material"],
+    risk: "High",
+    reasoning:
+      "Capsule shell materials often require dedicated halal review because they may contain gelatin or other animal-derived inputs.",
+    documents: ["Capsule shell declaration", "Gelatin source certificate", "Halal certificate"],
+  },
+]; // This line closes the local ingredient knowledge map so domain fallback logic can reuse it.
 const corsHeaders = { // This object stores CORS headers so browser-based frontends are allowed to call this Edge Function.
   "Access-Control-Allow-Origin": "*", // This allows any frontend origin to call the function, which is useful while the app is still moving between local and hosted URLs.
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", // This allows Supabase auth headers and JSON headers to pass through browser preflight checks.
@@ -301,6 +430,18 @@ async function queryIngredientCompliance(input: ValidatedInput): Promise<Queried
     await session.close(); // This closes the Neo4j session promptly so connections are managed efficiently.
   } // This line closes the try/finally block for the query helper.
 } // This line closes the queryIngredientCompliance helper so the handler can call it cleanly.
+function findIngredientKnowledgeRule(domain: ComplianceDomain, ingredient: string): IngredientKnowledgeRule | null { // This helper searches the local fallback knowledge map for a matching ingredient.
+  const normalizedIngredient = ingredient.trim().toLowerCase(); // This normalizes the ingredient to lowercase so matching stays simple and predictable.
+  for (const rule of ingredientKnowledgeRules) { // This loops through each local rule so the first relevant match can be returned quickly.
+    if (!rule.domains.includes(domain)) { // This checks whether the rule is relevant to the selected product domain.
+      continue; // This skips rules that belong to other domains.
+    } // This line closes the domain guard so matcher checks only run for relevant rules.
+    if (rule.matchers.some((matcher) => normalizedIngredient.includes(matcher))) { // This checks whether the ingredient contains any matcher fragment from the rule.
+      return rule; // This returns the first matching rule so fallback behavior stays deterministic.
+    } // This line closes the matcher branch so the next rule can be checked when no match is found.
+  } // This line closes the rule loop after every relevant rule has been checked.
+  return null; // This returns null when no local rule matches the ingredient.
+} // This line closes the findIngredientKnowledgeRule helper so domain fallback logic can reuse it.
 function getDomainFallbackDocuments(domain: ComplianceDomain): string[] { // This helper returns baseline evidence requirements when the graph does not yet have domain-specific data.
   if (domain === "cosmetics") { // This checks whether the scan is in the first expansion domain, cosmetics and personal care.
     return ["Supplier declaration", "Animal-origin statement", "Alcohol content statement", "Vegan or plant-origin proof", "Halal certificate"]; // This returns cosmetic-focused documents that help reviewers validate ingredients such as alcohol, collagen, lanolin, carmine, and fragrance solvents.
@@ -330,11 +471,12 @@ function addDomainReviewFallbackRows(input: ValidatedInput, rows: QueriedIngredi
     if (matchedIngredients.has(ingredient)) { // This checks whether Neo4j already returned data for the ingredient.
       continue; // This skips ingredients that already have graph-backed risk data.
     } // This line closes the matched-ingredient guard so only missing ingredients become review warnings.
+    const knowledgeRule = findIngredientKnowledgeRule(input.domain, ingredient); // This checks whether local domain knowledge can provide a smarter fallback than the generic review rule.
     fallbackRows.push({ // This adds one domain-aware Medium warning row for the unmatched ingredient.
       ingredient, // This stores the normalized ingredient name from the request.
-      risk: "Medium", // This marks the unmatched expansion-domain ingredient as a warning so it needs review instead of being treated as safe.
-      reasoning_source: buildDomainFallbackReasoning(ingredient, input), // This stores a clear explanation for the fallback warning.
-      required_documents: getDomainFallbackDocuments(input.domain), // This stores baseline evidence requirements for the selected domain.
+      risk: knowledgeRule?.risk ?? "Medium", // This uses domain-specific fallback severity when available and otherwise stays conservative with a warning.
+      reasoning_source: knowledgeRule?.reasoning ?? buildDomainFallbackReasoning(ingredient, input), // This uses a smarter domain-specific explanation when local knowledge exists.
+      required_documents: knowledgeRule?.documents ?? getDomainFallbackDocuments(input.domain), // This uses smarter evidence requirements when local knowledge exists.
       affected_markets: [input.market], // This keeps the warning tied to the requested market so the frontend has market context.
     }); // This line closes the fallback row object so it can be added to the array.
   } // This line closes the unmatched ingredient loop after every ingredient has been checked.
