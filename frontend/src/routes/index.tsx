@@ -66,8 +66,6 @@ function LandingPage() {
 
       <Nav />
 
-      <LDCBanner />
-
       <main className="relative">
         <Hero />
         <PlatformDemo />
@@ -82,24 +80,6 @@ function LandingPage() {
   );
 }
 
-/* ============================================================ LDC INFO BANNER */
-function LDCBanner() {
-  return (
-    <div className="relative z-10 border-b border-hairline bg-surface/40 backdrop-blur-md">
-      <div className="mx-auto flex max-w-7xl items-center justify-center gap-2.5 px-4 py-2.5 text-center text-xs sm:px-6">
-        <span className="relative flex h-1.5 w-1.5 shrink-0">
-          <span className="absolute inline-flex h-full w-full rounded-full bg-jade animate-pulse-ring" />
-          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-jade" />
-        </span>
-        <span className="text-foreground/85">
-          <span className="font-medium text-jade-glow">LDC Graduation Mode Active</span>{" "}
-          <span className="text-muted-foreground">Optimizing for high-value global exports</span>
-        </span>
-      </div>
-    </div>
-  );
-}
-
 /* ============================================================ HERO */
 function Hero() {
   return (
@@ -108,7 +88,7 @@ function Hero() {
         aria-hidden
         className="font-arabic pointer-events-none absolute right-4 top-12 select-none text-[120px] leading-none text-jade/[0.06] sm:right-10 sm:top-16 sm:text-[180px] md:text-[240px]"
       >
-        HALAL
+        {"\u062d\u0644\u0627\u0644"}
       </div>
 
       <div className="relative grid items-center gap-10 md:grid-cols-2 md:gap-[60px]">
@@ -159,21 +139,6 @@ function Hero() {
             </Link>
           </div>
 
-          <div className="mt-6 flex flex-wrap items-center gap-2">
-            {[
-              { flag: "M", label: "Malaysia" },
-              { flag: "U", label: "UAE" },
-              { flag: "GB", label: "United Kingdom" },
-            ].map((b) => (
-              <span
-                key={b.label}
-                className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-surface/40 px-3 py-1 text-xs text-muted-foreground backdrop-blur"
-              >
-                <span className="text-sm leading-none">{b.flag}</span>
-                <span className="font-medium text-foreground/80">{b.label}</span>
-              </span>
-            ))}
-          </div>
         </motion.div>
 
         {/* RIGHT COLUMN - Live Analysis Preview */}
@@ -214,10 +179,6 @@ function Hero() {
 
             <div className="my-5 h-px w-full bg-hairline" />
 
-            <div className="space-y-3">
-              <MarketRow flag="M" name="Malaysia" pct={42} tone="amber" status="Nearly Ready" />
-              <MarketRow flag="UK" name="UK HFA" pct={31} tone="red" status="Gaps Found" />
-            </div>
           </div>
         </motion.div>
       </div>
@@ -257,37 +218,6 @@ function PreviewRow({
   );
 }
 
-function MarketRow({
-  flag,
-  name,
-  pct,
-  tone,
-  status,
-}: {
-  flag: string;
-  name: string;
-  pct: number;
-  tone: "amber" | "red";
-  status: string;
-}) {
-  const barColor = tone === "amber" ? "bg-verdict-mushbooh" : "bg-verdict-haram";
-  const textColor = tone === "amber" ? "text-verdict-mushbooh" : "text-verdict-haram";
-  return (
-    <div>
-      <div className="flex items-center justify-between text-xs">
-        <span className="flex items-center gap-2 text-foreground/80">
-          <span className="text-sm leading-none">{flag}</span>
-          {name}
-        </span>
-        <span className={`font-medium ${textColor}`}>{status}</span>
-      </div>
-      <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-foreground/10">
-        <div className={`h-full ${barColor}`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
-
 /* ============================================================ PLATFORM DEMO */
 function PlatformDemo() {
   const readyCount = SAMPLE_INGREDIENTS.filter((i) => i.status === "halal").length;
@@ -316,14 +246,17 @@ function PlatformDemo() {
               Product
             </div>
             <div className="mt-1.5 font-display text-lg text-foreground">
-              Chocolate Wafer Biscuit - Malaysia
+              Chocolate Wafer Biscuit
             </div>
           </div>
 
-          <button className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-300 to-amber-500 px-5 py-3 text-sm font-medium text-background transition-all hover:scale-[1.01]">
+          <Link
+            to="/assistant"
+            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-jade px-5 py-3 text-sm font-medium text-background transition-all hover:scale-[1.01] hover:bg-jade-glow"
+          >
             <ScanLine className="h-4 w-4" strokeWidth={2.25} />
             Analyze Product
-          </button>
+          </Link>
         </motion.div>
 
         {/* RIGHT - Step 2 + 3: Analysis and what to fix */}
@@ -484,7 +417,7 @@ function DomainsSection() {
     {
       icon: Globe2,
       t: "Export Compliance",
-      d: "Malaysia, UAE, UK, and EU readiness support",
+      d: "Market readiness and export review support",
       verdict: "halal" as const,
     },
   ];

@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Logo } from "./Logo";
 import { ArrowUpRight, Menu, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getActiveGuestEmail } from "@/lib/guest-workspace";
+import { clearActiveGuestEmail, getActiveGuestEmail } from "@/lib/guest-workspace";
 
 const NAV_ITEMS = [
   { to: "/assistant", label: "Assistant" },
@@ -17,6 +17,12 @@ export function Nav() {
   useEffect(() => {
     setGuestEmail(getActiveGuestEmail());
   }, []);
+
+  const handleSignOut = () => {
+    clearActiveGuestEmail();
+    setGuestEmail(null);
+    setOpen(false);
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full">
@@ -38,12 +44,22 @@ export function Nav() {
           ))}
         </nav>
         <div className="flex items-center gap-2 sm:gap-3">
-          <Link
-            to={guestEmail ? "/assistant" : "/sign-in"}
-            className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground md:inline-flex"
-          >
-            {guestEmail ?? "Sign in"}
-          </Link>
+          {guestEmail ? (
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground md:inline-flex"
+            >
+              Log out
+            </button>
+          ) : (
+            <Link
+              to="/sign-in"
+              className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground md:inline-flex"
+            >
+              Sign in
+            </Link>
+          )}
           <Link
             to="/assistant"
             className="group hidden items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-all hover:bg-foreground/90 sm:inline-flex"
@@ -80,13 +96,23 @@ export function Nav() {
                     {item.label}
                   </Link>
                 ))}
-                <Link
-                  to={guestEmail ? "/assistant" : "/sign-in"}
-                  onClick={() => setOpen(false)}
-                  className="rounded-xl px-3 py-3 text-base text-foreground/85 transition-colors hover:bg-surface sm:hidden"
-                >
-                  {guestEmail ?? "Sign in"}
-                </Link>
+                {guestEmail ? (
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="rounded-xl px-3 py-3 text-left text-base text-foreground/85 transition-colors hover:bg-surface sm:hidden"
+                  >
+                    Log out
+                  </button>
+                ) : (
+                  <Link
+                    to="/sign-in"
+                    onClick={() => setOpen(false)}
+                    className="rounded-xl px-3 py-3 text-base text-foreground/85 transition-colors hover:bg-surface sm:hidden"
+                  >
+                    Sign in
+                  </Link>
+                )}
                 <Link
                   to="/assistant"
                   onClick={() => setOpen(false)}
