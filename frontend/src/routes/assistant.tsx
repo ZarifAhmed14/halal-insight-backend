@@ -239,6 +239,140 @@ type DomainIngredientRule = {
 
 const DOMAIN_INGREDIENT_RULES: DomainIngredientRule[] = [
   {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["pork", "swine", "ham", "bacon", "lard", "pepperoni", "prosciutto", "pork rinds", "carnitas", "porcine", "pigskin", "boar bristle"],
+    risk: "Critical",
+    reasoning:
+      "This ingredient is directly linked to pork or swine, so it is a hard blocker and should not be cleared for halal review.",
+    requiredDocuments: ["Ingredient replacement evidence", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["pork gelatin", "porcine enzyme", "porcine enzymes"],
+    risk: "Critical",
+    reasoning:
+      "This is a pork-derived ingredient or processing aid, so it is a hard blocker for halal readiness.",
+    requiredDocuments: ["Ingredient replacement evidence", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "export_compliance"],
+    matchers: ["alcohol", "ethanol", "ethyl alcohol", "wine", "beer", "spirits", "liquor", "liquor-filled", "vodka", "rum", "whiskey", "whisky", "brandy"],
+    risk: "Critical",
+    reasoning:
+      "This ingredient is an intoxicant or consumption alcohol, so it is a hard blocker for halal readiness.",
+    requiredDocuments: ["Alcohol-free formulation proof", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "export_compliance"],
+    matchers: ["blood sausage", "black pudding", "flowing blood", "liquid blood"],
+    risk: "Critical",
+    reasoning: "Flowing or liquid blood is a hard blocker for halal readiness.",
+    requiredDocuments: ["Ingredient replacement evidence", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "export_compliance"],
+    matchers: ["carrion", "dead animal", "died naturally", "strangled animal", "gored animal"],
+    risk: "Critical",
+    reasoning:
+      "Meat from an animal that died before proper slaughter is a hard blocker for halal readiness.",
+    requiredDocuments: ["Slaughter certificate", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "export_compliance"],
+    matchers: ["non-zabiha", "non zabiha", "non halal meat", "non-halal meat", "not halal slaughtered"],
+    risk: "Critical",
+    reasoning:
+      "Meat that is not confirmed as zabiha or halal-slaughtered is a hard blocker until replaced or proven halal.",
+    requiredDocuments: ["Halal slaughter certificate", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "export_compliance"],
+    matchers: ["lion", "dog meat", "wolf", "falcon", "vulture", "bird of prey"],
+    risk: "Critical",
+    reasoning: "Fanged predators and birds of prey are hard blockers for halal readiness.",
+    requiredDocuments: ["Ingredient replacement evidence", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["gelatin", "gelatine"],
+    risk: "High",
+    reasoning:
+      "Gelatin needs source confirmation because it may be pork-derived, non-zabiha animal-derived, fish-derived, or halal-certified.",
+    requiredDocuments: ["Gelatin source certificate", "Halal certificate", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["mono- and diglycerides", "monoglyceride", "diglyceride", "e471"],
+    risk: "Medium",
+    reasoning:
+      "Mono- and diglycerides can come from vegetable oils or animal fat, so source proof is needed before clearance.",
+    requiredDocuments: ["Ingredient origin proof", "Supplier declaration", "Halal certificate"],
+  },
+  {
+    domains: ["food", "export_compliance", "pharmaceuticals"],
+    matchers: ["enzyme", "enzymes", "rennet"],
+    risk: "Medium",
+    reasoning:
+      "Enzymes and rennet can be microbial or animal-derived, so the source and slaughter status must be verified.",
+    requiredDocuments: ["Enzyme source statement", "Supplier declaration", "Halal certificate"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["natural flavor", "natural flavour", "artificial flavor", "artificial flavour", "flavoring", "flavouring"],
+    risk: "Medium",
+    reasoning:
+      "Flavor ingredients can hide alcohol carriers or animal-derived subcomponents, so formulation disclosure is needed.",
+    requiredDocuments: ["Ingredient specification sheet", "Alcohol-free carrier statement", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "export_compliance"],
+    matchers: ["whey"],
+    risk: "Medium",
+    reasoning:
+      "Whey depends on the enzymes used in cheese-making, so the enzyme source must be confirmed.",
+    requiredDocuments: ["Enzyme source statement", "Supplier declaration", "Halal certificate"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["l-cysteine", "l cysteine", "cysteine"],
+    risk: "Medium",
+    reasoning:
+      "L-cysteine can come from human hair, feathers, synthetic, or microbial sources, so source evidence is required.",
+    requiredDocuments: ["Ingredient origin proof", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "export_compliance"],
+    matchers: ["vanilla extract"],
+    risk: "Medium",
+    reasoning:
+      "Vanilla extract often contains ethanol, so alcohol-free proof or formulation evidence is needed.",
+    requiredDocuments: ["Alcohol-free formulation proof", "Ingredient specification sheet", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["confectioner's glaze", "confectioners glaze", "shellac", "e904"],
+    risk: "High",
+    reasoning:
+      "Confectioner's glaze and shellac are insect-derived and should stay under review until the certifier accepts the source.",
+    requiredDocuments: ["Ingredient origin proof", "Certifier review note", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["stearic acid", "glycerin", "glycerol"],
+    risk: "Medium",
+    reasoning:
+      "Stearic acid and glycerin can be plant-based, synthetic, or animal-derived, so source confirmation is required.",
+    requiredDocuments: ["Vegan or plant-origin proof", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["carmine", "cochineal", "e120"],
+    risk: "High",
+    reasoning:
+      "Carmine is made from cochineal insects and is prohibited or disputed by many reviewers, so it should stay blocked or under strict certifier review.",
+    requiredDocuments: ["Ingredient replacement evidence", "Certifier review note", "Supplier declaration"],
+  },
+  {
     domains: ["cosmetics"],
     matchers: ["alcohol", "ethanol", "isopropyl alcohol", "benzyl alcohol"],
     risk: "Medium",

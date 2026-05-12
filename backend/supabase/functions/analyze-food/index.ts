@@ -74,7 +74,143 @@ type IngredientKnowledgeRule = { // This type describes one local fallback knowl
 let cachedDriver: neo4j.Driver | null = null; // This variable stores a reusable Neo4j driver so we do not reconnect on every request.
 let cachedSupabaseClient: SupabaseClient | null = null; // This variable stores a reusable Supabase client so we do not recreate it on every request.
 const allowedDomains: ComplianceDomain[] = ["food", "cosmetics", "export_compliance", "pharmaceuticals"]; // This array defines the domain rollout order, with export compliance intentionally second after cosmetics.
-const ingredientKnowledgeRules: IngredientKnowledgeRule[] = [ // This local knowledge map keeps cosmetics and pharma scans useful before every ingredient exists in Neo4j.
+const ingredientKnowledgeRules: IngredientKnowledgeRule[] = [ // This local knowledge map keeps obvious blockers and source-dependent ingredients useful before every ingredient exists in Neo4j.
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["pork", "swine", "ham", "bacon", "lard", "pepperoni", "prosciutto", "pork rinds", "carnitas", "porcine", "pigskin", "boar bristle"],
+    risk: "Critical",
+    reasoning:
+      "This ingredient is directly linked to pork or swine, so it is a hard blocker and should not be cleared for halal review.",
+    documents: ["Ingredient replacement evidence", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["pork gelatin", "porcine enzyme", "porcine enzymes"],
+    risk: "Critical",
+    reasoning:
+      "This is a pork-derived ingredient or processing aid, so it is a hard blocker for halal readiness.",
+    documents: ["Ingredient replacement evidence", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "export_compliance"],
+    matchers: ["alcohol", "ethanol", "ethyl alcohol", "wine", "beer", "spirits", "liquor", "liquor-filled", "vodka", "rum", "whiskey", "whisky", "brandy"],
+    risk: "Critical",
+    reasoning:
+      "This ingredient is an intoxicant or consumption alcohol, so it is a hard blocker for halal readiness.",
+    documents: ["Alcohol-free formulation proof", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "export_compliance"],
+    matchers: ["blood sausage", "black pudding", "flowing blood", "liquid blood"],
+    risk: "Critical",
+    reasoning:
+      "Flowing or liquid blood is a hard blocker for halal readiness.",
+    documents: ["Ingredient replacement evidence", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "export_compliance"],
+    matchers: ["carrion", "dead animal", "died naturally", "strangled animal", "gored animal"],
+    risk: "Critical",
+    reasoning:
+      "Meat from an animal that died before proper slaughter is a hard blocker for halal readiness.",
+    documents: ["Slaughter certificate", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "export_compliance"],
+    matchers: ["non-zabiha", "non zabiha", "non halal meat", "non-halal meat", "not halal slaughtered"],
+    risk: "Critical",
+    reasoning:
+      "Meat that is not confirmed as zabiha or halal-slaughtered is a hard blocker until replaced or proven halal.",
+    documents: ["Halal slaughter certificate", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "export_compliance"],
+    matchers: ["lion", "dog meat", "wolf", "falcon", "vulture", "bird of prey"],
+    risk: "Critical",
+    reasoning:
+      "Fanged predators and birds of prey are hard blockers for halal readiness.",
+    documents: ["Ingredient replacement evidence", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["gelatin", "gelatine"],
+    risk: "High",
+    reasoning:
+      "Gelatin needs source confirmation because it may be pork-derived, non-zabiha animal-derived, fish-derived, or halal-certified.",
+    documents: ["Gelatin source certificate", "Halal certificate", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["mono- and diglycerides", "monoglyceride", "diglyceride", "e471"],
+    risk: "Medium",
+    reasoning:
+      "Mono- and diglycerides can come from vegetable oils or animal fat, so source proof is needed before clearance.",
+    documents: ["Ingredient origin proof", "Supplier declaration", "Halal certificate"],
+  },
+  {
+    domains: ["food", "export_compliance", "pharmaceuticals"],
+    matchers: ["enzyme", "enzymes", "rennet"],
+    risk: "Medium",
+    reasoning:
+      "Enzymes and rennet can be microbial or animal-derived, so the source and slaughter status must be verified.",
+    documents: ["Enzyme source statement", "Supplier declaration", "Halal certificate"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["natural flavor", "natural flavour", "artificial flavor", "artificial flavour", "flavoring", "flavouring"],
+    risk: "Medium",
+    reasoning:
+      "Flavor ingredients can hide alcohol carriers or animal-derived subcomponents, so formulation disclosure is needed.",
+    documents: ["Ingredient specification sheet", "Alcohol-free carrier statement", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "export_compliance"],
+    matchers: ["whey"],
+    risk: "Medium",
+    reasoning:
+      "Whey depends on the enzymes used in cheese-making, so the enzyme source must be confirmed.",
+    documents: ["Enzyme source statement", "Supplier declaration", "Halal certificate"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["l-cysteine", "l cysteine", "cysteine"],
+    risk: "Medium",
+    reasoning:
+      "L-cysteine can come from human hair, feathers, synthetic, or microbial sources, so source evidence is required.",
+    documents: ["Ingredient origin proof", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "export_compliance"],
+    matchers: ["vanilla extract"],
+    risk: "Medium",
+    reasoning:
+      "Vanilla extract often contains ethanol, so alcohol-free proof or formulation evidence is needed.",
+    documents: ["Alcohol-free formulation proof", "Ingredient specification sheet", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["confectioner's glaze", "confectioners glaze", "shellac", "e904"],
+    risk: "High",
+    reasoning:
+      "Confectioner's glaze and shellac are insect-derived and should stay under review until the certifier accepts the source.",
+    documents: ["Ingredient origin proof", "Certifier review note", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["stearic acid", "glycerin", "glycerol"],
+    risk: "Medium",
+    reasoning:
+      "Stearic acid and glycerin can be plant-based, synthetic, or animal-derived, so source confirmation is required.",
+    documents: ["Vegan or plant-origin proof", "Supplier declaration"],
+  },
+  {
+    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
+    matchers: ["carmine", "cochineal", "e120"],
+    risk: "High",
+    reasoning:
+      "Carmine is made from cochineal insects and is prohibited or disputed by many reviewers, so it should stay blocked or under strict certifier review.",
+    documents: ["Ingredient replacement evidence", "Certifier review note", "Supplier declaration"],
+  },
   {
     domains: ["cosmetics"],
     matchers: ["alcohol", "ethanol", "isopropyl alcohol", "benzyl alcohol"],
@@ -461,22 +597,32 @@ function buildDomainFallbackReasoning(ingredient: string, input: ValidatedInput)
   } // This line closes the export-specific reasoning branch so ingredient-domain reasoning can run.
   return `${ingredient} needs ${domainLabel} halal review because this domain is not yet fully covered by the Neo4j knowledge graph, so HalalIQ is asking for evidence instead of marking it low risk automatically.`; // This returns safe fallback reasoning so incomplete graph coverage does not produce false confidence.
 } // This line closes the buildDomainFallbackReasoning helper so fallback rows remain readable and reusable.
-function addDomainReviewFallbackRows(input: ValidatedInput, rows: QueriedIngredientRisk[]): QueriedIngredientRisk[] { // This helper adds Medium review rows for non-food ingredients that Neo4j did not return yet.
-  if (input.domain === "food") { // This checks whether the scan uses the established food graph behavior.
-    return rows; // This returns food rows unchanged so existing food behavior is preserved.
-  } // This line closes the food guard so only expansion domains receive fallback warnings.
+function addDomainReviewFallbackRows(input: ValidatedInput, rows: QueriedIngredientRisk[]): QueriedIngredientRisk[] { // This helper adds local safety rows when Neo4j does not return enough ingredient data.
   const matchedIngredients = new Set(rows.map((row) => row.ingredient)); // This records which ingredients already had graph data so we do not duplicate them.
   const fallbackRows: QueriedIngredientRisk[] = []; // This array collects synthetic review rows for unmatched expansion-domain ingredients.
   for (const ingredient of input.ingredients) { // This loops through every normalized ingredient so missing graph coverage can be handled defensively.
+    const knowledgeRule = findIngredientKnowledgeRule(input.domain, ingredient); // This checks whether local domain knowledge can provide a smarter fallback than the generic review rule.
+    if (knowledgeRule) { // This checks whether a local rule matched, including hard blockers such as pork, ham, bacon, or lard.
+      fallbackRows.push({ // This adds the local safety row even when graph data exists so the stricter rule can win during aggregation.
+        ingredient, // This stores the normalized ingredient name from the request.
+        risk: knowledgeRule.risk, // This uses the local rule severity so hard blockers stay hard blockers.
+        reasoning_source: knowledgeRule.reasoning, // This returns the specific explanation tied to the matched rule.
+        required_documents: knowledgeRule.documents, // This returns the evidence or replacement documents tied to the matched rule.
+        affected_markets: [input.market], // This keeps the warning tied to the requested market so the frontend has market context.
+      }); // This line closes the local safety row object so it can be added to the fallback rows.
+      continue; // This skips the generic fallback because the specific rule already handled this ingredient.
+    } // This line closes the local rule branch so generic fallback logic can run when needed.
+    if (input.domain === "food") { // This checks whether a food ingredient lacked both graph data and a local safety rule.
+      continue; // This avoids generic warnings for normal food ingredients while still allowing hard blockers to work.
+    } // This line closes the food guard so only expansion domains receive generic fallback warnings.
     if (matchedIngredients.has(ingredient)) { // This checks whether Neo4j already returned data for the ingredient.
       continue; // This skips ingredients that already have graph-backed risk data.
     } // This line closes the matched-ingredient guard so only missing ingredients become review warnings.
-    const knowledgeRule = findIngredientKnowledgeRule(input.domain, ingredient); // This checks whether local domain knowledge can provide a smarter fallback than the generic review rule.
     fallbackRows.push({ // This adds one domain-aware Medium warning row for the unmatched ingredient.
       ingredient, // This stores the normalized ingredient name from the request.
-      risk: knowledgeRule?.risk ?? "Medium", // This uses domain-specific fallback severity when available and otherwise stays conservative with a warning.
-      reasoning_source: knowledgeRule?.reasoning ?? buildDomainFallbackReasoning(ingredient, input), // This uses a smarter domain-specific explanation when local knowledge exists.
-      required_documents: knowledgeRule?.documents ?? getDomainFallbackDocuments(input.domain), // This uses smarter evidence requirements when local knowledge exists.
+      risk: "Medium", // This stays conservative with a warning when no specific local rule exists.
+      reasoning_source: buildDomainFallbackReasoning(ingredient, input), // This uses the generic domain-specific explanation.
+      required_documents: getDomainFallbackDocuments(input.domain), // This uses baseline evidence requirements for the selected domain.
       affected_markets: [input.market], // This keeps the warning tied to the requested market so the frontend has market context.
     }); // This line closes the fallback row object so it can be added to the array.
   } // This line closes the unmatched ingredient loop after every ingredient has been checked.
