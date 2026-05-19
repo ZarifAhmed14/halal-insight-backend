@@ -590,14 +590,17 @@ function getDomainFallbackDocuments(domain: ComplianceDomain): string[] { // Thi
   } // This line closes the pharmaceutical document branch so the food fallback can run.
   return ["Supplier declaration", "Halal certificate"]; // This returns a minimal food evidence fallback even though food usually relies on graph data first.
 } // This line closes the getDomainFallbackDocuments helper so domain fallback rows can reuse it.
-function buildDomainFallbackReasoning(ingredient: string, input: ValidatedInput): string { // This helper explains why a domain fallback warning exists when graph data is not yet complete.
+function buildDomainFallbackReasoning(ingredient: string, input: ValidatedInput, graphUnavailable = false): string { // This helper explains why a domain fallback warning exists when graph data is not yet complete or temporarily unavailable.
   const domainLabel = getDomainLabel(input.domain); // This converts the domain code into a friendly label for the explanation.
+  if (graphUnavailable) { // This checks whether the live graph dependency failed so the explanation can stay truthful.
+    return `${ingredient} needs manual review because the live ingredient knowledge service is temporarily unavailable, so HalalIQ is falling back to an evidence-first review instead of clearing it as low risk automatically.`; // This returns a transparent fallback message so users understand why the scan stayed conservative.
+  } // This line closes the graph-unavailable branch so normal domain-coverage reasoning can run next.
   if (input.domain === "export_compliance") { // This checks whether the fallback is for market-readiness rather than ingredient-only halal risk.
     return `${ingredient} needs export-compliance review for ${input.market} because market readiness depends on authority-specific documents, labeling, and certification evidence, not ingredient matching alone.`; // This returns export-specific reasoning so users understand the warning is a checklist gap, not a final haram ruling.
   } // This line closes the export-specific reasoning branch so ingredient-domain reasoning can run.
   return `${ingredient} needs ${domainLabel} halal review because this domain is not yet fully covered by the Neo4j knowledge graph, so HalalIQ is asking for evidence instead of marking it low risk automatically.`; // This returns safe fallback reasoning so incomplete graph coverage does not produce false confidence.
 } // This line closes the buildDomainFallbackReasoning helper so fallback rows remain readable and reusable.
-function addDomainReviewFallbackRows(input: ValidatedInput, rows: QueriedIngredientRisk[]): QueriedIngredientRisk[] { // This helper adds local safety rows when Neo4j does not return enough ingredient data.
+function addDomainReviewFallbackRows(input: ValidatedInput, rows: QueriedIngredientRisk[], forceReviewForUnmatchedIngredients = false): QueriedIngredientRisk[] { // This helper adds local safety rows when Neo4j does not return enough ingredient data or is temporarily unavailable.
   const matchedIngredients = new Set(rows.map((row) => row.ingredient)); // This records which ingredients already had graph data so we do not duplicate them.
   const fallbackRows: QueriedIngredientRisk[] = []; // This array collects synthetic review rows for unmatched expansion-domain ingredients.
   for (const ingredient of input.ingredients) { // This loops through every normalized ingredient so missing graph coverage can be handled defensively.
@@ -612,7 +615,7 @@ function addDomainReviewFallbackRows(input: ValidatedInput, rows: QueriedIngredi
       }); // This line closes the local safety row object so it can be added to the fallback rows.
       continue; // This skips the generic fallback because the specific rule already handled this ingredient.
     } // This line closes the local rule branch so generic fallback logic can run when needed.
-    if (input.domain === "food") { // This checks whether a food ingredient lacked both graph data and a local safety rule.
+    if (input.domain === "food" && !forceReviewForUnmatchedIngredients) { // This checks whether a food ingredient lacked both graph data and a local safety rule while the live graph is still available.
       continue; // This avoids generic warnings for normal food ingredients while still allowing hard blockers to work.
     } // This line closes the food guard so only expansion domains receive generic fallback warnings.
     if (matchedIngredients.has(ingredient)) { // This checks whether Neo4j already returned data for the ingredient.
@@ -621,7 +624,7 @@ function addDomainReviewFallbackRows(input: ValidatedInput, rows: QueriedIngredi
     fallbackRows.push({ // This adds one domain-aware Medium warning row for the unmatched ingredient.
       ingredient, // This stores the normalized ingredient name from the request.
       risk: "Medium", // This stays conservative with a warning when no specific local rule exists.
-      reasoning_source: buildDomainFallbackReasoning(ingredient, input), // This uses the generic domain-specific explanation.
+      reasoning_source: buildDomainFallbackReasoning(ingredient, input, forceReviewForUnmatchedIngredients), // This uses the graph-unavailable explanation when the live dependency is down.
       required_documents: getDomainFallbackDocuments(input.domain), // This uses baseline evidence requirements for the selected domain.
       affected_markets: [input.market], // This keeps the warning tied to the requested market so the frontend has market context.
     }); // This line closes the fallback row object so it can be added to the array.
@@ -786,8 +789,15 @@ serve(async (req: Request): Promise<Response> => { // This starts the Edge Funct
       return createJsonResponse({ error: "`ingredients` must contain at least one non-empty value after normalization." }, 400); // This returns a clear error because later query logic needs at least one normalized ingredient.
     } // This line closes the post-normalization empty guard so the next lines only run when normalized data exists.
     const normalizedData: ValidatedInput = { product_name: validationResult.data.product_name, ingredients: normalizedIngredients, market: validationResult.data.market, domain: validationResult.data.domain }; // This replaces the raw ingredients with the normalized array while preserving the validated product name, market, and domain.
-    const queriedRows = await queryIngredientCompliance(normalizedData); // This runs the Neo4j query layer using the normalized ingredients and validated market.
-    const domainAwareRows = addDomainReviewFallbackRows(normalizedData, queriedRows); // This adds safe review warnings for expansion domains when Neo4j does not yet contain matching domain data.
+    let queriedRows: QueriedIngredientRisk[] = []; // This starts with an empty query result so the function can fall back gracefully if Neo4j is unavailable.
+    let graphUnavailable = false; // This tracks whether the live Neo4j dependency failed so later logic can stay conservative and transparent.
+    try { // This tries the live Neo4j query first because graph-backed answers are still the preferred path.
+      queriedRows = await queryIngredientCompliance(normalizedData); // This runs the Neo4j query layer using the normalized ingredients and validated market.
+    } catch (queryError) { // This catches graph outages so one dependency problem does not take the whole scan offline.
+      graphUnavailable = true; // This marks the graph dependency as unavailable so unmatched ingredients become review warnings instead of false low-risk results.
+      console.error("Neo4j query failed, falling back to local review rules:", queryError); // This logs the dependency failure for backend debugging without hiding the fallback behavior.
+    } // This line closes the graph query recovery block so report building can continue either way.
+    const domainAwareRows = addDomainReviewFallbackRows(normalizedData, queriedRows, graphUnavailable); // This adds local safety rows and conservative fallback warnings when graph coverage is missing or unavailable.
     const complianceSummary = buildComplianceSummary(domainAwareRows, normalizedData.market); // This runs the business logic layer on top of the graph results plus any domain fallback rows.
     const complianceReport = buildComplianceReport(complianceSummary, normalizedData.ingredients.length, normalizedData.product_name, normalizedData.domain); // This builds the final frontend-friendly report object from the grouped result, product name, and domain.
     const supabase = getSupabaseClient(); // This gets the reusable Supabase client before product and report persistence so both writes use the same client setup.
@@ -803,9 +813,9 @@ serve(async (req: Request): Promise<Response> => { // This starts the Edge Funct
       throw new Error("Failed to resolve product id."); // This stops execution with a clear message instead of saving a submission with a null product_id.
     } // This line closes the missing-product guard so the id can be extracted safely.
     const productId = extractInsertedId(product as Record<string, unknown>, "products"); // This extracts the final product id returned by the upsert so submissions always link to the correct product row.
-    const { data: previousSubmissions } = await supabase.from("submissions").select("id, created_at, reports ( result, created_at )").eq("product_id", productId).order("created_at", { ascending: false }); // This loads previous submissions for the same product, including linked report results, so the API can return scan history.
     await saveComplianceReport(supabase, productId, ingredients, targetMarkets, complianceReport); // This keeps the existing save call using the resolved product id, ingredients, target markets, and full compliance report.
-    return createJsonResponse({ ...complianceReport, history: previousSubmissions || [] }, 200); // This returns the current report plus the product's previous submission history in one frontend-friendly JSON response.
+    const { data: previousSubmissions } = await supabase.from("submissions").select("id, created_at, reports ( result, created_at )").eq("product_id", productId).order("created_at", { ascending: false }); // This loads previous submissions after save so the current scan is immediately included in the returned history.
+    return createJsonResponse({ ...complianceReport, history: previousSubmissions || [] }, 200); // This returns the current report plus the product's full submission history in one frontend-friendly JSON response.
   } catch (error) { // This catch block handles unexpected runtime, Neo4j, or Supabase errors.
     const message = error instanceof Error ? error.message : "Internal server error."; // This safely extracts a readable error message for the response body.
     return createJsonResponse({ error: message }, 500); // This returns a 500 response because the request was valid but the server failed internally.

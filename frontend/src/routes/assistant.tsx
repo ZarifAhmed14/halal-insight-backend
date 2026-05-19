@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import jsQR from "jsqr";
 import readExcelFile from "read-excel-file/browser";
 import {
   AlertTriangle,
@@ -771,6 +772,16 @@ type CodePayload = {
   sourceLabel: string;
 };
 
+type ParsedCodeOutcome =
+  | {
+      kind: "payload";
+      payload: CodePayload;
+    }
+  | {
+      kind: "barcode";
+      rawValue: string;
+    };
+
 function extractIngredientsFromText(rawValue: string): string[] {
   const normalized = rawValue.replace(/\|/g, "\n");
   const matchedIngredients = normalized.match(/ingredients?\s*[:=-]\s*([\s\S]+)/i);
@@ -782,7 +793,7 @@ function extractIngredientsFromText(rawValue: string): string[] {
   return parseIngredients(normalized);
 }
 
-function parseCodePayload(rawValue: string): CodePayload | null {
+function parseCodePayload(rawValue: string): ParsedCodeOutcome | null {
   const trimmedValue = rawValue.trim();
 
   if (!trimmedValue) {
@@ -802,11 +813,14 @@ function parseCodePayload(rawValue: string): CodePayload | null {
       const nextDomain = parsedUrl.searchParams.get("domain");
 
       return {
-        ingredients: urlIngredients,
-        productName: parsedUrl.searchParams.get("product_name") ?? undefined,
-        market: parsedUrl.searchParams.get("market") ?? undefined,
-        domain: isComplianceDomain(nextDomain) ? nextDomain : undefined,
-        sourceLabel: "QR code",
+        kind: "payload",
+        payload: {
+          ingredients: urlIngredients,
+          productName: parsedUrl.searchParams.get("product_name") ?? undefined,
+          market: parsedUrl.searchParams.get("market") ?? undefined,
+          domain: isComplianceDomain(nextDomain) ? nextDomain : undefined,
+          sourceLabel: "QR code",
+        },
       };
     }
   } catch (_error) {
@@ -834,12 +848,15 @@ function parseCodePayload(rawValue: string): CodePayload | null {
         typeof parsedJson.domain === "string" ? parsedJson.domain : undefined;
 
       return {
-        ingredients,
-        productName:
-          typeof parsedJson.product_name === "string" ? parsedJson.product_name : undefined,
-        market: typeof parsedJson.market === "string" ? parsedJson.market : undefined,
-        domain: isComplianceDomain(nextDomain) ? nextDomain : undefined,
-        sourceLabel: "QR code",
+        kind: "payload",
+        payload: {
+          ingredients,
+          productName:
+            typeof parsedJson.product_name === "string" ? parsedJson.product_name : undefined,
+          market: typeof parsedJson.market === "string" ? parsedJson.market : undefined,
+          domain: isComplianceDomain(nextDomain) ? nextDomain : undefined,
+          sourceLabel: "QR code",
+        },
       };
     }
   } catch (_error) {
@@ -847,11 +864,23 @@ function parseCodePayload(rawValue: string): CodePayload | null {
   }
 
   const ingredients = extractIngredientsFromText(trimmedValue);
+  const looksLikeIngredientText =
+    /ingredients?\s*[:=-]/i.test(trimmedValue) || /[,;\n]/.test(trimmedValue);
 
-  if (ingredients.length > 1) {
+  if (ingredients.length > 0 && looksLikeIngredientText) {
     return {
-      ingredients,
-      sourceLabel: "QR code",
+      kind: "payload",
+      payload: {
+        ingredients,
+        sourceLabel: "QR code",
+      },
+    };
+  }
+
+  if (/^\d{8,14}$/.test(trimmedValue)) {
+    return {
+      kind: "barcode",
+      rawValue: trimmedValue,
     };
   }
 
@@ -1290,7 +1319,9 @@ function AssistantPage() {
                           exit={{ opacity: 0, y: -8 }}
                           transition={{ duration: 0.25 }}
                         >
-                          {tab === "summary" && <SummaryTab report={report} />}
+                          {tab === "summary" && (
+                            <SummaryTab report={report} onViewAll={(nextTab) => setTab(nextTab)} />
+                          )}
                           {tab === "blockers" && (
                             <EntryList
                               entries={report.blockers}
@@ -1740,6 +1771,7 @@ function ScanForm({
   );
   const [isStartingScanner, setIsStartingScanner] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanTimeoutRef = useRef<number | null>(null);
   const detectorRef = useRef<BarcodeDetectorInstance | null>(null);
@@ -1749,7 +1781,7 @@ function ScanForm({
   const preScanConfidence =
     extractedConfidence !== null
       ? hasExtractedIngredients
-        ? Math.max(55, extractedConfidence)
+        ? extractedConfidence
         : extractedConfidence
       : reviewedIngredientCount > 0
         ? 75
@@ -1771,6 +1803,11 @@ function ScanForm({
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+
+    if (canvasRef.current) {
+      const context = canvasRef.current.getContext("2d");
+      context?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    }
   };
 
   useEffect(() => stopCodeScanner, []);
@@ -1788,37 +1825,43 @@ function ScanForm({
       setCodeScannerError(null);
       setIsStartingScanner(true);
 
-      if (
-        typeof window === "undefined" ||
-        !window.BarcodeDetector ||
-        !navigator.mediaDevices?.getUserMedia
-      ) {
+      if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia) {
         setCodeScannerError(
-          "This device does not support live code scanning here yet. You can still upload a label photo or ingredient file.",
+          "This device cannot open the camera here yet. You can still upload a label photo or ingredient file.",
         );
         setIsStartingScanner(false);
         return;
       }
 
       try {
-        const requestedFormats: BarcodeFormat[] = [
-          "qr_code",
-          "ean_13",
-          "ean_8",
-          "upc_a",
-          "upc_e",
-          "code_128",
-        ];
-        const supportedFormats = window.BarcodeDetector.getSupportedFormats
-          ? await window.BarcodeDetector.getSupportedFormats()
-          : requestedFormats;
-        const activeFormats = requestedFormats.filter((format) =>
-          supportedFormats.includes(format),
-        );
+        if (window.BarcodeDetector) {
+          const requestedFormats: BarcodeFormat[] = [
+            "qr_code",
+            "ean_13",
+            "ean_8",
+            "upc_a",
+            "upc_e",
+            "code_128",
+          ];
+          const supportedFormats = window.BarcodeDetector.getSupportedFormats
+            ? await window.BarcodeDetector.getSupportedFormats()
+            : requestedFormats;
+          const activeFormats = requestedFormats.filter((format) =>
+            supportedFormats.includes(format),
+          );
 
-        detectorRef.current = new window.BarcodeDetector({
-          formats: activeFormats.length > 0 ? activeFormats : ["qr_code"],
-        });
+          detectorRef.current = new window.BarcodeDetector({
+            formats: activeFormats.length > 0 ? activeFormats : ["qr_code"],
+          });
+          setCodeScannerHint(
+            "Scan a QR code with ingredient data. Product-only barcodes still need a linked catalog.",
+          );
+        } else {
+          detectorRef.current = null;
+          setCodeScannerHint(
+            "QR scanning is running in fallback mode. Hold the code steady and keep it well lit.",
+          );
+        }
 
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
@@ -1839,15 +1882,39 @@ function ScanForm({
           await videoRef.current.play();
         }
 
-        setCodeScannerHint("Scan a QR code with ingredient data. Product-only barcodes need a linked catalog.");
         setIsStartingScanner(false);
+
+        const detectQrFromVideoFrame = () => {
+          if (!videoRef.current || !canvasRef.current) {
+            return null;
+          }
+
+          const video = videoRef.current;
+          const canvas = canvasRef.current;
+
+          if (!video.videoWidth || !video.videoHeight) {
+            return null;
+          }
+
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+
+          const context = canvas.getContext("2d", { willReadFrequently: true });
+
+          if (!context) {
+            return null;
+          }
+
+          context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const frame = context.getImageData(0, 0, canvas.width, canvas.height);
+          return jsQR(frame.data, frame.width, frame.height)?.data?.trim() ?? null;
+        };
 
         const scanFrame = async () => {
           if (
             cancelled ||
             !isCodeScannerOpen ||
             !videoRef.current ||
-            !detectorRef.current ||
             videoRef.current.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
           ) {
             scanTimeoutRef.current = window.setTimeout(scanFrame, 400);
@@ -1855,22 +1922,31 @@ function ScanForm({
           }
 
           try {
-            const detections = await detectorRef.current.detect(videoRef.current);
-            const rawValue = detections.find((item) => item.rawValue?.trim())?.rawValue?.trim();
+            const rawValue = detectorRef.current
+              ? (
+                  await detectorRef.current.detect(videoRef.current)
+                ).find((item) => item.rawValue?.trim())?.rawValue?.trim() ?? null
+              : detectQrFromVideoFrame();
 
             if (rawValue) {
-              const payload = parseCodePayload(rawValue);
+              const parsedCode = parseCodePayload(rawValue);
 
-              if (payload) {
-                onCodePayloadDetected(payload);
+              if (parsedCode?.kind === "payload") {
+                onCodePayloadDetected(parsedCode.payload);
                 setIsCodeScannerOpen(false);
                 stopCodeScanner();
                 return;
               }
 
-              setCodeScannerError(
-                "Code scanned, but it did not include ingredient data. Use a QR code that stores ingredients or a linked product payload.",
-              );
+              if (parsedCode?.kind === "barcode") {
+                setCodeScannerError(
+                  `Barcode ${parsedCode.rawValue} was read, but retail barcode lookup is not connected yet. Use a QR code that includes ingredients, or enter the ingredient list manually.`,
+                );
+              } else {
+                setCodeScannerError(
+                  "Code scanned, but it did not include ingredient data. Use a QR code that stores ingredients or a linked product payload.",
+                );
+              }
             }
           } catch (_error) {
             setCodeScannerError(
@@ -2157,6 +2233,7 @@ function ScanForm({
                 muted
                 className="aspect-[3/4] w-full bg-black object-cover"
               />
+              <canvas ref={canvasRef} className="hidden" aria-hidden="true" />
             </div>
             <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
               {isStartingScanner ? "Opening camera..." : codeScannerHint}
@@ -2343,7 +2420,13 @@ function TabStrip({
   );
 }
 
-function SummaryTab({ report }: { report: ComplianceReport }) {
+function SummaryTab({
+  report,
+  onViewAll,
+}: {
+  report: ComplianceReport;
+  onViewAll: (tab: ReportTab) => void;
+}) {
   const market = report.market ?? "Malaysia";
   const readiness = getReadinessCopy(report.overall_status, market);
   const confidence = getReadinessConfidence(report.overall_status, market);
@@ -2414,6 +2497,29 @@ function SummaryTab({ report }: { report: ComplianceReport }) {
         ))}
       </div>
 
+      <div className="grid gap-3 md:grid-cols-2">
+        <CategoryPreview
+          title="Highest priority"
+          entries={report.blockers}
+          emptyText="No blocker ingredients returned."
+          tone="blocker"
+          onViewAll={report.blockers.length > 5 ? () => onViewAll("blockers") : undefined}
+        />
+        <CategoryPreview
+          title="Review queue"
+          entries={report.warnings.length > 0 ? report.warnings : report.safe}
+          emptyText="No warnings or safe entries returned."
+          tone={report.warnings.length > 0 ? "warning" : "safe"}
+          onViewAll={
+            report.warnings.length > 5
+              ? () => onViewAll("warnings")
+              : report.warnings.length === 0 && report.safe.length > 5
+                ? () => onViewAll("safe")
+                : undefined
+          }
+        />
+      </div>
+
       <div className="rounded-2xl border border-hairline bg-surface p-5">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -2438,21 +2544,6 @@ function SummaryTab({ report }: { report: ComplianceReport }) {
           ))}
         </div>
       </div>
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <CategoryPreview
-          title="Highest priority"
-          entries={report.blockers}
-          emptyText="No blocker ingredients returned."
-          tone="blocker"
-        />
-        <CategoryPreview
-          title="Review queue"
-          entries={report.warnings.length > 0 ? report.warnings : report.safe}
-          emptyText="No warnings or safe entries returned."
-          tone={report.warnings.length > 0 ? "warning" : "safe"}
-        />
-      </div>
     </div>
   );
 }
@@ -2462,13 +2553,16 @@ function CategoryPreview({
   entries,
   emptyText,
   tone,
+  onViewAll,
 }: {
   title: string;
   entries: ComplianceEntry[];
   emptyText: string;
   tone: "blocker" | "warning" | "safe";
+  onViewAll?: () => void;
 }) {
   const styles = getToneStyles(tone);
+  const previewEntries = entries.slice(0, 5);
 
   return (
     <div className={`rounded-2xl border p-4 ${styles.card}`}>
@@ -2480,11 +2574,11 @@ function CategoryPreview({
           {entries.length} item(s)
         </span>
       </div>
-      <div className="mt-3 space-y-2">
+      <div className="mt-3 max-h-[25rem] space-y-2 overflow-y-auto pr-1">
         {entries.length === 0 ? (
           <p className="text-sm text-muted-foreground">{emptyText}</p>
         ) : (
-          entries.slice(0, 3).map((entry) => (
+          previewEntries.map((entry) => (
             <div
               key={`${title}-${entry.ingredient}-${entry.risk}`}
               className="rounded-xl border border-hairline bg-background/35 p-3"
@@ -2500,6 +2594,15 @@ function CategoryPreview({
           ))
         )}
       </div>
+      {onViewAll && (
+        <button
+          type="button"
+          onClick={onViewAll}
+          className="mt-3 w-full rounded-xl border border-hairline bg-background/35 px-3 py-2 text-xs font-medium text-foreground/85 transition-colors hover:bg-background hover:text-foreground"
+        >
+          View all
+        </button>
+      )}
     </div>
   );
 }
