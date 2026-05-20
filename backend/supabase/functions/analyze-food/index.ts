@@ -220,11 +220,27 @@ const ingredientKnowledgeRules: IngredientKnowledgeRule[] = [ // This local know
     documents: [],
   },
   {
+    domains: ["food", "export_compliance"],
+    matchers: ["glucose syrup", "dextrose", "maltodextrin", "cocoa butter", "rice", "almond", "peanut", "pea protein", "potato starch"],
+    risk: "Low",
+    reasoning:
+      "This ingredient is commonly treated as low risk by name and usually does not need special halal escalation unless the supplier specification says otherwise.",
+    documents: [],
+  },
+  {
     domains: ["cosmetics", "pharmaceuticals"],
     matchers: ["water", "aqua", "purified water", "cellulose", "microcrystalline cellulose"],
     risk: "Low",
     reasoning:
       "This ingredient is commonly treated as low risk by name and usually does not need special halal escalation unless the supplier specification says otherwise.",
+    documents: [],
+  },
+  {
+    domains: ["pharmaceuticals"],
+    matchers: ["hypromellose", "hydroxypropyl methylcellulose", "povidone", "silicon dioxide", "colloidal silicon dioxide", "citric acid"],
+    risk: "Low",
+    reasoning:
+      "This excipient is usually treated as low risk by name and can stay low risk unless supplier evidence introduces a source concern.",
     documents: [],
   },
   {
@@ -282,6 +298,14 @@ const ingredientKnowledgeRules: IngredientKnowledgeRule[] = [ // This local know
     reasoning:
       "Fragrance blends can hide alcohol carriers or animal-derived subcomponents, so formulation disclosure is needed before halal review.",
     documents: ["Alcohol content statement", "Supplier declaration", "Ingredient specification sheet"],
+  },
+  {
+    domains: ["cosmetics", "pharmaceuticals"],
+    matchers: ["beeswax", "cera alba", "propolis"],
+    risk: "Medium",
+    reasoning:
+      "Bee-derived ingredients can be acceptable or debated depending on the certifier, so they should stay under documented review.",
+    documents: ["Ingredient origin proof", "Certifier review note", "Supplier declaration"],
   },
   {
     domains: ["cosmetics", "pharmaceuticals"],

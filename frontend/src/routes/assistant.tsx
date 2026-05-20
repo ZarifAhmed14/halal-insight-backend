@@ -374,11 +374,27 @@ const DOMAIN_INGREDIENT_RULES: DomainIngredientRule[] = [
     requiredDocuments: [],
   },
   {
+    domains: ["food", "export_compliance"],
+    matchers: ["glucose syrup", "dextrose", "maltodextrin", "cocoa butter", "rice", "almond", "peanut", "pea protein", "potato starch"],
+    risk: "Low",
+    reasoning:
+      "This ingredient is commonly treated as low risk by name and usually does not need special halal escalation unless the supplier specification says otherwise.",
+    requiredDocuments: [],
+  },
+  {
     domains: ["cosmetics", "pharmaceuticals"],
     matchers: ["water", "aqua", "purified water", "cellulose", "microcrystalline cellulose"],
     risk: "Low",
     reasoning:
       "This ingredient is commonly treated as low risk by name and usually does not need special halal escalation unless the supplier specification says otherwise.",
+    requiredDocuments: [],
+  },
+  {
+    domains: ["pharmaceuticals"],
+    matchers: ["hypromellose", "hydroxypropyl methylcellulose", "povidone", "silicon dioxide", "colloidal silicon dioxide", "citric acid"],
+    risk: "Low",
+    reasoning:
+      "This excipient is usually treated as low risk by name and can stay low risk unless supplier evidence introduces a source concern.",
     requiredDocuments: [],
   },
   {
@@ -436,6 +452,14 @@ const DOMAIN_INGREDIENT_RULES: DomainIngredientRule[] = [
     reasoning:
       "Fragrance blends can hide alcohol carriers or animal-derived subcomponents, so formulation disclosure is needed before halal review.",
     requiredDocuments: ["Alcohol content statement", "Supplier declaration", "Ingredient specification sheet"],
+  },
+  {
+    domains: ["cosmetics", "pharmaceuticals"],
+    matchers: ["beeswax", "cera alba", "propolis"],
+    risk: "Medium",
+    reasoning:
+      "Bee-derived ingredients can be acceptable or debated depending on the certifier, so they should stay under documented review.",
+    requiredDocuments: ["Ingredient origin proof", "Certifier review note", "Supplier declaration"],
   },
   {
     domains: ["cosmetics", "pharmaceuticals"],
@@ -772,6 +796,90 @@ function getMarketChecklist(report: ComplianceReport, market: string) {
   ];
 }
 
+type EvidenceDocumentStatus = "Required now" | "Review soon" | "Prepare";
+
+type EvidenceDocumentItem = {
+  name: string;
+  status: EvidenceDocumentStatus;
+  relatedIngredients: string[];
+};
+
+function getEvidenceStatusPriority(status: EvidenceDocumentStatus) {
+  if (status === "Required now") {
+    return 3;
+  }
+
+  if (status === "Review soon") {
+    return 2;
+  }
+
+  return 1;
+}
+
+function collectEvidenceDocuments(
+  report: ComplianceReport,
+  market: string,
+): EvidenceDocumentItem[] {
+  const evidenceMap = new Map<string, EvidenceDocumentItem>();
+  const upsertDocument = (
+    name: string,
+    status: EvidenceDocumentStatus,
+    ingredient?: string,
+  ) => {
+    const normalizedName = name.trim();
+
+    if (!normalizedName) {
+      return;
+    }
+
+    const currentItem = evidenceMap.get(normalizedName);
+
+    if (!currentItem) {
+      evidenceMap.set(normalizedName, {
+        name: normalizedName,
+        status,
+        relatedIngredients: ingredient ? [ingredient] : [],
+      });
+      return;
+    }
+
+    if (getEvidenceStatusPriority(status) > getEvidenceStatusPriority(currentItem.status)) {
+      currentItem.status = status;
+    }
+
+    if (ingredient && !currentItem.relatedIngredients.includes(ingredient)) {
+      currentItem.relatedIngredients.push(ingredient);
+    }
+  };
+
+  for (const entry of report.blockers) {
+    for (const document of entry.required_documents) {
+      upsertDocument(document, "Required now", entry.ingredient);
+    }
+  }
+
+  for (const entry of report.warnings) {
+    for (const document of entry.required_documents) {
+      upsertDocument(document, "Review soon", entry.ingredient);
+    }
+  }
+
+  for (const document of getMarketProfile(market).defaultDocuments) {
+    upsertDocument(document, "Prepare");
+  }
+
+  return Array.from(evidenceMap.values()).sort((left, right) => {
+    const statusDifference =
+      getEvidenceStatusPriority(right.status) - getEvidenceStatusPriority(left.status);
+
+    if (statusDifference !== 0) {
+      return statusDifference;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
+}
+
 type CodePayload = {
   ingredients: string[];
   productName?: string;
@@ -799,6 +907,33 @@ function extractIngredientsFromText(rawValue: string): string[] {
   }
 
   return parseIngredients(normalized);
+}
+
+function extractBarcodeFromUrl(value: string): string | null {
+  try {
+    const parsedUrl = new URL(value);
+    const fromSearchParams = [
+      parsedUrl.searchParams.get("code"),
+      parsedUrl.searchParams.get("barcode"),
+      parsedUrl.searchParams.get("gtin"),
+      parsedUrl.searchParams.get("ean"),
+      parsedUrl.searchParams.get("upc"),
+    ].find((item) => item && /^\d{8,14}$/.test(item.trim()));
+
+    if (fromSearchParams) {
+      return fromSearchParams.trim();
+    }
+
+    const pathSegments = parsedUrl.pathname
+      .split("/")
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+    const fromPath = [...pathSegments].reverse().find((segment) => /^\d{8,14}$/.test(segment));
+
+    return fromPath ?? null;
+  } catch (_error) {
+    return null;
+  }
 }
 
 function parseCodePayload(rawValue: string): ParsedCodeOutcome | null {
@@ -829,6 +964,15 @@ function parseCodePayload(rawValue: string): ParsedCodeOutcome | null {
           domain: isComplianceDomain(nextDomain) ? nextDomain : undefined,
           sourceLabel: "QR code",
         },
+      };
+    }
+
+    const barcodeFromUrl = extractBarcodeFromUrl(trimmedValue);
+
+    if (barcodeFromUrl) {
+      return {
+        kind: "barcode",
+        rawValue: barcodeFromUrl,
       };
     }
   } catch (_error) {
@@ -895,14 +1039,17 @@ function parseCodePayload(rawValue: string): ParsedCodeOutcome | null {
   return null;
 }
 
-function formatBarcodeSourceLabel(code: string, brand?: string): string {
+function formatBarcodeSourceLabel(code: string, sourceLabel: string, brand?: string): string {
   const trimmedBrand = brand?.trim();
   return trimmedBrand && trimmedBrand.length > 0
-    ? `Retail barcode lookup (${trimmedBrand} • ${code})`
-    : `Retail barcode lookup (${code})`;
+    ? `${sourceLabel} (${trimmedBrand} • ${code})`
+    : `${sourceLabel} (${code})`;
 }
 
-async function resolveBarcodePayload(code: string): Promise<CodePayload | null> {
+async function resolveBarcodePayload(
+  code: string,
+  domain: ComplianceDomain,
+): Promise<CodePayload | null> {
   const demoLookup = DEMO_BARCODE_LOOKUPS[code];
 
   if (demoLookup) {
@@ -912,12 +1059,12 @@ async function resolveBarcodePayload(code: string): Promise<CodePayload | null> 
       return {
         ingredients: demoIngredients,
         productName: demoLookup.product_name,
-        sourceLabel: formatBarcodeSourceLabel(code, demoLookup.brand),
+        sourceLabel: formatBarcodeSourceLabel(code, "Retail barcode lookup", demoLookup.brand),
       };
     }
   }
 
-  const lookupResult = await lookupBarcodeProduct(code);
+  const lookupResult = await lookupBarcodeProduct(code, domain);
 
   if (!lookupResult) {
     return null;
@@ -932,7 +1079,7 @@ async function resolveBarcodePayload(code: string): Promise<CodePayload | null> 
   return {
     ingredients,
     productName: lookupResult.product_name,
-    sourceLabel: formatBarcodeSourceLabel(code, lookupResult.brand),
+    sourceLabel: formatBarcodeSourceLabel(code, lookupResult.source_label, lookupResult.brand),
   };
 }
 
@@ -1930,7 +2077,7 @@ function ScanForm({
               setCodeScannerError(null);
               setCodeScannerHint(`Looking up product code ${parsedCode.rawValue}...`);
 
-              void resolveBarcodePayload(parsedCode.rawValue)
+              void resolveBarcodePayload(parsedCode.rawValue, domain)
                 .then((barcodePayload) => {
                   if (barcodePayload) {
                     activeControls.stop();
@@ -1991,7 +2138,7 @@ function ScanForm({
       cancelled = true;
       stopCodeScanner();
     };
-  }, [isCodeScannerOpen, onCodePayloadDetected]);
+  }, [domain, isCodeScannerOpen, onCodePayloadDetected]);
 
   return (
     <>
@@ -2453,6 +2600,7 @@ function SummaryTab({
   const readiness = getReadinessCopy(report.overall_status, market);
   const confidence = getReadinessConfidence(report.overall_status, market);
   const checklist = getMarketChecklist(report, market);
+  const evidenceDocuments = collectEvidenceDocuments(report, market);
   const cards = [
     {
       label: "Ingredients",
@@ -2542,29 +2690,87 @@ function SummaryTab({
         />
       </div>
 
-      <div className="rounded-2xl border border-hairline bg-surface p-5">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-              Country checklist
+      <div className="grid gap-3 md:grid-cols-[1.05fr_0.95fr]">
+        <EvidencePackPanel documents={evidenceDocuments} market={market} />
+
+        <div className="rounded-2xl border border-hairline bg-surface p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+                Country checklist
+              </div>
+              <div className="mt-1 text-sm text-foreground">{market}</div>
             </div>
-            <div className="mt-1 text-sm text-foreground">{market}</div>
+            <span className="rounded-full border border-jade/20 bg-jade/5 px-3 py-1 text-[10px] text-jade">
+              {getMarketProfile(market).readinessSummary[report.overall_status]}
+            </span>
           </div>
-          <span className="rounded-full border border-jade/20 bg-jade/5 px-3 py-1 text-[10px] text-jade">
-            {getMarketProfile(market).readinessSummary[report.overall_status]}
-          </span>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            {getMarketProfile(market).warningNote}
+          </p>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {checklist.map((item) => (
+              <div
+                key={`${market}-${item.label}`}
+                className="flex items-center justify-between rounded-xl border border-hairline bg-background/35 px-3 py-2.5 text-sm"
+              >
+                <span>{item.label}</span>
+                <span className="text-xs text-muted-foreground">{item.state}</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          {checklist.map((item) => (
-            <div
-              key={`${market}-${item.label}`}
-              className="flex items-center justify-between rounded-xl border border-hairline bg-background/35 px-3 py-2.5 text-sm"
-            >
-              <span>{item.label}</span>
-              <span className="text-xs text-muted-foreground">{item.state}</span>
+      </div>
+    </div>
+  );
+}
+
+function EvidencePackPanel({
+  documents,
+  market,
+}: {
+  documents: EvidenceDocumentItem[];
+  market: string;
+}) {
+  const previewDocuments = documents.slice(0, 6);
+
+  return (
+    <div className="rounded-2xl border border-hairline bg-surface p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+            Evidence pack
+          </div>
+          <div className="mt-1 text-sm text-foreground">{market}</div>
+        </div>
+        <span className="rounded-full border border-hairline bg-background/35 px-3 py-1 text-[10px] text-muted-foreground">
+          {documents.length} document{documents.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+        These are the documents the manufacturer should prepare next based on the current
+        ingredient findings and market expectations.
+      </p>
+      <div className="mt-4 space-y-2">
+        {previewDocuments.map((document) => (
+          <div
+            key={`${market}-${document.name}`}
+            className="rounded-xl border border-hairline bg-background/35 px-3 py-3"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-foreground">{document.name}</span>
+              <span className="rounded-full border border-hairline bg-background/45 px-2.5 py-1 text-[10px] text-muted-foreground">
+                {document.status}
+              </span>
             </div>
-          ))}
-        </div>
+            {document.relatedIngredients.length > 0 && (
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Triggered by: {document.relatedIngredients.slice(0, 3).join(", ")}
+                {document.relatedIngredients.length > 3 ? ", more" : ""}
+              </p>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

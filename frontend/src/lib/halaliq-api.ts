@@ -161,47 +161,74 @@ export async function extractIngredientsFromImage(
   return payload as ExtractIngredientsResult;
 }
 
-export async function lookupBarcodeProduct(code: string): Promise<BarcodeLookupResult | null> {
+export async function lookupBarcodeProduct(
+  code: string,
+  domain: ComplianceDomain = "food",
+): Promise<BarcodeLookupResult | null> {
   const normalizedCode = code.trim();
 
   if (!/^\d{8,14}$/.test(normalizedCode)) {
     return null;
   }
 
-  const response = await fetch(
-    `https://world.openfoodfacts.org/api/v2/product/${normalizedCode}.json?fields=code,product_name,ingredients_text,ingredients_text_en,brands,status`,
-  );
+  const sourceConfigs =
+    domain === "cosmetics"
+      ? [
+          {
+            label: "Open Beauty Facts lookup",
+            url: `https://world.openbeautyfacts.org/api/v2/product/${normalizedCode}.json?fields=code,product_name,ingredients_text,ingredients_text_en,brands,status`,
+          },
+          {
+            label: "Open Food Facts lookup",
+            url: `https://world.openfoodfacts.org/api/v2/product/${normalizedCode}.json?fields=code,product_name,ingredients_text,ingredients_text_en,brands,status`,
+          },
+        ]
+      : [
+          {
+            label: "Open Food Facts lookup",
+            url: `https://world.openfoodfacts.org/api/v2/product/${normalizedCode}.json?fields=code,product_name,ingredients_text,ingredients_text_en,brands,status`,
+          },
+          {
+            label: "Open Beauty Facts lookup",
+            url: `https://world.openbeautyfacts.org/api/v2/product/${normalizedCode}.json?fields=code,product_name,ingredients_text,ingredients_text_en,brands,status`,
+          },
+        ];
 
-  const payload = await readJsonResponse(response);
+  for (const source of sourceConfigs) {
+    const response = await fetch(source.url);
+    const payload = await readJsonResponse(response);
 
-  if (!response.ok || !isPlainObject(payload)) {
-    return null;
+    if (!response.ok || !isPlainObject(payload)) {
+      continue;
+    }
+
+    const product = isPlainObject(payload.product) ? payload.product : null;
+
+    if (!product) {
+      continue;
+    }
+
+    const productName =
+      typeof product.product_name === "string" ? product.product_name.trim() : "";
+    const ingredientsTextCandidates = [
+      typeof product.ingredients_text_en === "string" ? product.ingredients_text_en.trim() : "",
+      typeof product.ingredients_text === "string" ? product.ingredients_text.trim() : "",
+    ].filter((value) => value.length > 0);
+
+    const ingredientsText = ingredientsTextCandidates[0] ?? "";
+
+    if (!productName || !ingredientsText) {
+      continue;
+    }
+
+    return {
+      code: normalizedCode,
+      product_name: productName,
+      ingredients_text: ingredientsText,
+      brand: typeof product.brands === "string" ? product.brands.trim() || undefined : undefined,
+      source_label: source.label,
+    };
   }
 
-  const product = isPlainObject(payload.product) ? payload.product : null;
-
-  if (!product) {
-    return null;
-  }
-
-  const productName =
-    typeof product.product_name === "string" ? product.product_name.trim() : "";
-  const ingredientsTextCandidates = [
-    typeof product.ingredients_text_en === "string" ? product.ingredients_text_en.trim() : "",
-    typeof product.ingredients_text === "string" ? product.ingredients_text.trim() : "",
-  ].filter((value) => value.length > 0);
-
-  const ingredientsText = ingredientsTextCandidates[0] ?? "";
-
-  if (!productName || !ingredientsText) {
-    return null;
-  }
-
-  return {
-    code: normalizedCode,
-    product_name: productName,
-    ingredients_text: ingredientsText,
-    brand: typeof product.brands === "string" ? product.brands.trim() || undefined : undefined,
-    source_label: "Retail barcode lookup",
-  };
+  return null;
 }
