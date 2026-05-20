@@ -11,6 +11,10 @@ function canUseStorage(): boolean {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
+function canUseSessionStorage(): boolean {
+  return typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
+}
+
 function normalizeGuestEmail(value: string): string {
   const normalized = value.trim().toLowerCase();
   return GUEST_ALIASES.has(normalized) ? "guest" : normalized;
@@ -61,30 +65,41 @@ export function isGuestEmailValid(value: string): boolean {
 }
 
 export function getActiveGuestEmail(): string | null {
-  if (!canUseStorage()) {
+  if (!canUseSessionStorage()) {
     return null;
   }
 
-  const value = window.localStorage.getItem(ACTIVE_GUEST_KEY);
+  const value = window.sessionStorage.getItem(ACTIVE_GUEST_KEY);
+
+  if (!value && canUseStorage()) {
+    window.localStorage.removeItem(ACTIVE_GUEST_KEY);
+  }
+
   return value ? normalizeGuestEmail(value) : null;
 }
 
 export function setActiveGuestEmail(value: string): string {
   const normalized = normalizeGuestEmail(value);
 
+  if (canUseSessionStorage()) {
+    window.sessionStorage.setItem(ACTIVE_GUEST_KEY, normalized);
+  }
+
   if (canUseStorage()) {
-    window.localStorage.setItem(ACTIVE_GUEST_KEY, normalized);
+    window.localStorage.removeItem(ACTIVE_GUEST_KEY);
   }
 
   return normalized;
 }
 
 export function clearActiveGuestEmail(): void {
-  if (!canUseStorage()) {
-    return;
+  if (canUseSessionStorage()) {
+    window.sessionStorage.removeItem(ACTIVE_GUEST_KEY);
   }
 
-  window.localStorage.removeItem(ACTIVE_GUEST_KEY);
+  if (canUseStorage()) {
+    window.localStorage.removeItem(ACTIVE_GUEST_KEY);
+  }
 }
 
 export function getGuestHistory(email: string | null | undefined): ReportHistoryItem[] {
