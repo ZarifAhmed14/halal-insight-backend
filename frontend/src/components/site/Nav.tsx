@@ -1,28 +1,28 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { Logo } from "./Logo";
 import { ArrowUpRight, Menu, X } from "lucide-react";
-import { useEffect, useState } from "react";
-import { clearActiveGuestEmail, getActiveGuestEmail } from "@/lib/guest-workspace";
+import { useState } from "react";
 
 const NAV_ITEMS = [
   { to: "/assistant", label: "Assistant" },
-  { to: "/transparency", label: "Transparency" },
+  { to: "/methodology", label: "Methodology" },
   { to: "/enterprise", label: "Enterprise" },
 ] as const;
 
 export function Nav() {
   const [open, setOpen] = useState(false);
-  const [guestEmail, setGuestEmail] = useState<string | null>(null);
+  const currentPathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  const isLandingPage = currentPathname === "/";
+  const visibleNavItems = NAV_ITEMS.filter((item) => {
+    if (isLandingPage && item.to === "/assistant") {
+      return false;
+    }
 
-  useEffect(() => {
-    setGuestEmail(getActiveGuestEmail());
-  }, []);
-
-  const handleSignOut = () => {
-    clearActiveGuestEmail();
-    setGuestEmail(null);
-    setOpen(false);
-  };
+    // Hide self-link to avoid redundant navigation on the current page.
+    return item.to !== currentPathname;
+  });
 
   return (
     <header className="sticky top-0 z-50 w-full">
@@ -31,8 +31,8 @@ export function Nav() {
         <Link to="/" className="flex items-center" onClick={() => setOpen(false)}>
           <Logo />
         </Link>
-        <nav className="hidden items-center gap-8 md:flex">
-          {NAV_ITEMS.map((item) => (
+        <nav className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-8 md:flex">
+          {visibleNavItems.map((item) => (
             <Link
               key={item.to}
               to={item.to}
@@ -44,29 +44,15 @@ export function Nav() {
           ))}
         </nav>
         <div className="flex items-center gap-2 sm:gap-3">
-          {guestEmail ? (
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground md:inline-flex"
-            >
-              Log out
-            </button>
-          ) : (
+          {!isLandingPage && (
             <Link
-              to="/sign-in"
-              className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground md:inline-flex"
+              to="/assistant"
+              className="group hidden items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-all hover:bg-foreground/90 sm:inline-flex"
             >
-              Sign in
+              Try the assistant
+              <ArrowUpRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
             </Link>
           )}
-          <Link
-            to="/assistant"
-            className="group hidden items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-all hover:bg-foreground/90 sm:inline-flex"
-          >
-            Try the assistant
-            <ArrowUpRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-          </Link>
           <button
             type="button"
             aria-label={open ? "Close menu" : "Open menu"}
@@ -85,7 +71,7 @@ export function Nav() {
           <div className="absolute inset-x-0 top-0 glass border-b border-hairline">
             <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6">
               <nav className="flex flex-col gap-1">
-                {NAV_ITEMS.map((item) => (
+                {visibleNavItems.map((item) => (
                   <Link
                     key={item.to}
                     to={item.to}
@@ -96,31 +82,16 @@ export function Nav() {
                     {item.label}
                   </Link>
                 ))}
-                {guestEmail ? (
-                  <button
-                    type="button"
-                    onClick={handleSignOut}
-                    className="rounded-xl px-3 py-3 text-left text-base text-foreground/85 transition-colors hover:bg-surface sm:hidden"
-                  >
-                    Log out
-                  </button>
-                ) : (
+                {!isLandingPage && (
                   <Link
-                    to="/sign-in"
+                    to="/assistant"
                     onClick={() => setOpen(false)}
-                    className="rounded-xl px-3 py-3 text-base text-foreground/85 transition-colors hover:bg-surface sm:hidden"
+                    className="mt-2 inline-flex items-center justify-center gap-1.5 rounded-full bg-foreground px-4 py-3 text-sm font-medium text-background sm:hidden"
                   >
-                    Sign in
+                    Try the assistant
+                    <ArrowUpRight className="h-3.5 w-3.5" />
                   </Link>
                 )}
-                <Link
-                  to="/assistant"
-                  onClick={() => setOpen(false)}
-                  className="mt-2 inline-flex items-center justify-center gap-1.5 rounded-full bg-foreground px-4 py-3 text-sm font-medium text-background sm:hidden"
-                >
-                  Try the assistant
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                </Link>
               </nav>
             </div>
           </div>

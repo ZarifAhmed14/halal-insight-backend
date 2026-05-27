@@ -69,10 +69,7 @@ function LandingPage() {
       <main className="relative">
         <Hero />
         <PlatformDemo />
-        <HowItWorks />
-        <DomainsSection />
-        <ProductShowcase />
-        <FinalCTA />
+        <EvidenceReadinessSection />
       </main>
 
       <Footer />
@@ -122,23 +119,22 @@ function Hero() {
           </p>
 
           <div className="mt-8 flex flex-wrap items-center gap-3">
-            <Link
-              to="/assistant"
+            <a
+              href="/scan"
               className="group inline-flex items-center gap-2 rounded-full bg-foreground px-5 py-3 text-sm font-medium text-background transition-all hover:scale-[1.02] glow-jade"
             >
               <ScanLine className="h-4 w-4" strokeWidth={2} />
               Scan Your Product
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-            </Link>
-            <Link
-              to="/assistant"
+            </a>
+            <a
+              href="/assistant?focus=upload"
               className="group inline-flex items-center gap-2 rounded-full border border-hairline bg-surface/60 px-5 py-3 text-sm text-foreground backdrop-blur transition-colors hover:bg-surface"
             >
               <Upload className="h-4 w-4 text-jade" strokeWidth={1.75} />
               Upload Ingredient List
-            </Link>
+            </a>
           </div>
-
         </motion.div>
 
         {/* RIGHT COLUMN - Live Analysis Preview */}
@@ -178,7 +174,6 @@ function Hero() {
             </div>
 
             <div className="my-5 h-px w-full bg-hairline" />
-
           </div>
         </motion.div>
       </div>
@@ -303,6 +298,74 @@ function PlatformDemo() {
             ))}
           </div>
         </motion.div>
+      </div>
+    </Section>
+  );
+}
+
+function EvidenceReadinessSection() {
+  return (
+    <Section eyebrow="Evidence and country readiness" title="Build a review-ready evidence pack">
+      <div className="mx-auto grid max-w-5xl gap-5 lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="rounded-3xl border border-hairline bg-surface p-6 shadow-elegant">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            What the reviewer needs
+          </div>
+          <h3 className="font-display mt-2 text-2xl text-foreground">Evidence pack builder</h3>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            Each document is linked to the ingredient that triggered it, so teams know what is
+            required now, what can be reviewed soon, and what to prepare before submission.
+          </p>
+          <div className="mt-5 space-y-2.5">
+            {[
+              "Required now - ingredient source proof",
+              "Review soon - supplier declaration",
+              "Prepare - export evidence pack",
+            ].map((line) => (
+              <div
+                key={line}
+                className="rounded-xl border border-hairline bg-background/35 px-3.5 py-2.5 text-sm text-foreground"
+              >
+                {line}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-hairline bg-surface p-6 shadow-elegant">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            Single-country focus
+          </div>
+          <h3 className="font-display mt-2 text-2xl text-foreground">
+            Why country selection matters
+          </h3>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            The same product may need different proof depending on the destination market. Halal
+            Intelligence keeps one selected country at a time so your team can prepare the right
+            review package without visual overload.
+          </p>
+          <div className="mt-5 grid gap-2">
+            {[
+              "Malaysia: supplier declaration and ingredient origin proof",
+              "Thailand: certifier evidence and batch traceability",
+              "UK: certifier-ready evidence pack",
+            ].map((line) => (
+              <div
+                key={line}
+                className="rounded-xl border border-hairline bg-background/35 px-3.5 py-2.5 text-xs leading-relaxed text-muted-foreground"
+              >
+                {line}
+              </div>
+            ))}
+          </div>
+          <Link
+            to="/methodology"
+            className="mt-5 inline-flex items-center gap-1.5 text-sm text-jade transition-colors hover:text-jade-glow"
+          >
+            Read the assessment methodology
+            <ArrowUpRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
       </div>
     </Section>
   );
@@ -553,8 +616,8 @@ function ProductShowcase() {
               Review-first path
             </div>
             <p className="mt-3 text-sm leading-relaxed text-foreground/85">
-              When data is incomplete, Halal Intelligence marks the item as Needs Review instead of
-              giving a false low-risk result
+              When data is incomplete, Halal Intelligence marks the item as "Needs Review" instead
+              of giving a false low-risk result
             </p>
             <div className="mt-4 inline-flex items-center gap-2 text-xs text-jade">
               <ShieldCheck className="h-3.5 w-3.5" />

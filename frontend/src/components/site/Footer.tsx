@@ -22,23 +22,23 @@ export function Footer() {
               title: "Product",
               links: [
                 { to: "/assistant", label: "Assistant" },
-                { to: "/transparency", label: "Transparency" },
+                { to: "/methodology", label: "Methodology" },
                 { to: "/enterprise", label: "Enterprise" },
               ],
             },
             {
               title: "Knowledge",
               links: [
-                { to: "/transparency", label: "Methodology" },
-                { to: "/transparency", label: "Safety principles", hash: "safety" },
+                { to: "/methodology", label: "Methodology" },
+                { to: "/methodology", label: "Boundaries", hash: "boundaries" },
               ],
             },
             {
               title: "Company",
               links: [
                 { to: "/enterprise", label: "About" },
-                { to: "/transparency", label: "Privacy", hash: "safety" },
-                { to: "/enterprise", label: "Contact", hash: "contact" },
+                { to: "/methodology", label: "Assessment boundary", hash: "boundaries" },
+                { to: "/enterprise", label: "Workflow" },
               ],
             },
           ].map((col) => (

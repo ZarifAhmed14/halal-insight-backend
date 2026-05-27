@@ -1,12 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BarcodeFormat as ZXingBarcodeFormat,
   BrowserMultiFormatReader,
   type IScannerControls,
 } from "@zxing/browser";
-import readExcelFile from "read-excel-file/browser";
 import {
   AlertTriangle,
   ArrowUp,
@@ -14,17 +13,15 @@ import {
   Camera,
   ChevronDown,
   ClipboardCheck,
+  Download,
   FileUp,
   FileText,
-  History,
   Loader2,
   MapPinned,
   PackageCheck,
-  Plus,
   ScanLine,
   ScrollText,
   ShieldCheck,
-  Sparkles,
   WandSparkles,
 } from "lucide-react";
 import { Nav } from "@/components/site/Nav";
@@ -32,21 +29,11 @@ import { VerdictBadge } from "@/components/site/VerdictBadge";
 import {
   analyzeProduct,
   extractIngredientsFromImage,
-  lookupBarcodeProduct,
-  type BarcodeLookupResult,
   type ComplianceDomain,
   type ComplianceEntry,
   type ComplianceReport,
   type ExtractIngredientsResult,
-  type OverallStatus,
-  type ReportHistoryItem,
 } from "@/lib/halaliq-api";
-import {
-  clearActiveGuestEmail,
-  getActiveGuestEmail,
-  getGuestHistory,
-  saveGuestReport,
-} from "@/lib/guest-workspace";
 import {
   Dialog,
   DialogContent,
@@ -54,6 +41,50 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DOMAIN_OPTIONS,
+  MARKET_OPTIONS,
+  MAX_IMPORTED_FILE_ROWS,
+  SAMPLE_SCANS,
+} from "@/features/assistant/config";
+import {
+  applyDomainKnowledgeToReport,
+  applyMarketRulesToReport,
+  buildReadinessBrief,
+  buildReplacementScenarios,
+  buildInternalProductName,
+  collectEvidenceDocuments,
+  getDomainLabel,
+  getMarketChecklist,
+  getMarketProfile,
+  getReadinessConfidence,
+  getReadinessCopy,
+  getToneStyles,
+  simplifyReasoning,
+  statusToVerdict,
+  type EvidencePackItem,
+  type ReadinessBrief,
+  type ReplacementScenario,
+} from "@/features/assistant/report-logic";
+import {
+  isComplianceDomain,
+  parseCodePayload,
+  parseIngredients,
+  readImageAsBase64,
+  readIngredientsFromFile,
+  resolveBarcodePayload,
+  sanitizeExtractedIngredients,
+  shouldAutoOpenScannerOnThisDevice,
+  type CodePayload,
+} from "@/features/assistant/input-helpers";
+import {
+  downloadCertificatePdf,
+  findCertificateForBrief,
+  getCertificateVerificationUrl,
+  isCertificateEligible,
+  issueCertificate,
+  type CertificateRecord,
+} from "@/features/assistant/certificate";
 
 export const Route = createFileRoute("/assistant")({
   head: () => ({
@@ -62,7 +93,7 @@ export const Route = createFileRoute("/assistant")({
       {
         name: "description",
         content:
-          "Run a product-level halal pre-certification scan with ingredient risk groups, required documents, and scan history.",
+          "Run a product-level halal pre-certification scan with ingredient risk groups and required documents.",
       },
       { property: "og:title", content: "Halal Intelligence Product Readiness Assistant" },
       {
@@ -74,1023 +105,7 @@ export const Route = createFileRoute("/assistant")({
   component: AssistantPage,
 });
 
-type ReportTab = "summary" | "blockers" | "warnings" | "safe" | "history";
-
-const SAMPLE_SCANS = [
-  {
-    productName: "Chocolate Wafer Biscuit",
-    ingredients: "Palm Oil\nGelatin\nVanilla Flavor",
-    market: "Malaysia",
-    domain: "food" as ComplianceDomain,
-  },
-  {
-    productName: "Brightening Face Cream",
-    ingredients: "Collagen\nGlycerin\nFragrance\nCarmine",
-    market: "Malaysia",
-    domain: "cosmetics" as ComplianceDomain,
-  },
-  {
-    productName: "Export Compliance Demo",
-    ingredients: "Palm Oil\nGelatin\nNatural Flavor\nMixed Emulsifier\nChocolate Flavor",
-    market: "UAE",
-    domain: "export_compliance" as ComplianceDomain,
-  },
-  {
-    productName: "Softgel Supplement",
-    ingredients: "Gelatin\nGlycerin\nMagnesium Stearate",
-    market: "Malaysia",
-    domain: "pharmaceuticals" as ComplianceDomain,
-  },
-];
-
-const DEMO_BARCODE_LOOKUPS: Record<
-  string,
-  Pick<BarcodeLookupResult, "product_name" | "ingredients_text"> & {
-    brand?: string;
-  }
-> = {
-  "3017620422003": {
-    product_name: "Nutella",
-    brand: "Nutella",
-    ingredients_text:
-      "sugar, palm oil, hazelnuts, low-fat cocoa, skimmed milk powder, whey powder, soy lecithin, vanillin",
-  },
-};
-
-const DOMAIN_OPTIONS: Array<{ value: ComplianceDomain; label: string; helper: string }> = [
-  { value: "food", label: "Food", helper: "Ingredient halal readiness" },
-  { value: "cosmetics", label: "Cosmetics", helper: "Personal care ingredients" },
-  { value: "export_compliance", label: "Export Compliance", helper: "Market readiness checklist" },
-  { value: "pharmaceuticals", label: "Pharmaceuticals", helper: "Excipients and capsules" },
-];
-
-const MAX_IMPORTED_FILE_ROWS = 10;
-
-const MARKET_OPTIONS = [
-  {
-    value: "Malaysia",
-    label: "Malaysia",
-    authority: "Malaysia halal market",
-    coverage: 92,
-    focus: "Local halal certification readiness",
-  },
-  {
-    value: "UAE",
-    label: "UAE",
-    authority: "UAE export market",
-    coverage: 82,
-    focus: "Export documentation and market entry",
-  },
-  {
-    value: "United Kingdom",
-    label: "United Kingdom",
-    authority: "HFA / HMC style review",
-    coverage: 68,
-    focus: "Importer and certifier review support",
-  },
-  {
-    value: "European Union",
-    label: "European Union",
-    authority: "EU-facing export pack",
-    coverage: 58,
-    focus: "Traceability and evidence checklist",
-  },
-];
-
-type MarketProfile = {
-  label: string;
-  confidenceAdjustment: number;
-  warningNote: string;
-  readinessSummary: Record<OverallStatus, string>;
-  defaultDocuments: string[];
-  strictBlockerIngredients: string[];
-  strictReviewIngredients: string[];
-};
-
-const MARKET_PROFILES: Record<string, MarketProfile> = {
-  Malaysia: {
-    label: "Malaysia",
-    confidenceAdjustment: 4,
-    warningNote: "Accepted with supplier proof in Malaysia",
-    readinessSummary: {
-      "Low Risk": "Ready for Malaysia review",
-      "Needs Review": "Needs more evidence for Malaysia review",
-      "Not Ready": "Not ready for Malaysia review",
-    },
-    defaultDocuments: ["Halal certificate", "Supplier declaration", "Ingredient origin proof"],
-    strictBlockerIngredients: [],
-    strictReviewIngredients: ["flavor", "emulsifier"],
-  },
-  UAE: {
-    label: "UAE",
-    confidenceAdjustment: -3,
-    warningNote: "Needs export evidence for UAE",
-    readinessSummary: {
-      "Low Risk": "Ready for UAE export review",
-      "Needs Review": "Needs more evidence for UAE export review",
-      "Not Ready": "Not ready for UAE export submission",
-    },
-    defaultDocuments: ["Export documents", "Ingredient source proof", "Batch traceability"],
-    strictBlockerIngredients: ["gelatin", "collagen"],
-    strictReviewIngredients: ["flavor", "glycerin"],
-  },
-  "United Kingdom": {
-    label: "United Kingdom",
-    confidenceAdjustment: -6,
-    warningNote: "Requires certifier review for UK",
-    readinessSummary: {
-      "Low Risk": "Ready for UK certifier review",
-      "Needs Review": "Needs more evidence for UK certifier review",
-      "Not Ready": "Not ready for UK certifier review",
-    },
-    defaultDocuments: ["Ingredient origin proof", "Certifier-ready evidence pack"],
-    strictBlockerIngredients: [],
-    strictReviewIngredients: ["collagen", "carmine", "gelatin"],
-  },
-  "European Union": {
-    label: "European Union",
-    confidenceAdjustment: -10,
-    warningNote: "Needs broader export evidence for EU review",
-    readinessSummary: {
-      "Low Risk": "Ready for EU export review",
-      "Needs Review": "Needs more evidence for EU export review",
-      "Not Ready": "Not ready for EU export submission",
-    },
-    defaultDocuments: ["Ingredient source proof", "Traceability record", "Export pack readiness"],
-    strictBlockerIngredients: [],
-    strictReviewIngredients: ["gelatin", "collagen", "flavor"],
-  },
-};
-
-type DomainIngredientRule = {
-  domains: ComplianceDomain[];
-  matchers: string[];
-  risk: "Critical" | "High" | "Medium" | "Low";
-  reasoning: string;
-  requiredDocuments: string[];
-};
-
-const DOMAIN_INGREDIENT_RULES: DomainIngredientRule[] = [
-  {
-    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
-    matchers: ["pork", "swine", "ham", "bacon", "lard", "pepperoni", "prosciutto", "pork rinds", "carnitas", "porcine", "pigskin", "boar bristle"],
-    risk: "Critical",
-    reasoning:
-      "This ingredient is directly linked to pork or swine, so it is a hard blocker and should not be cleared for halal review.",
-    requiredDocuments: ["Ingredient replacement evidence", "Supplier declaration"],
-  },
-  {
-    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
-    matchers: ["pork gelatin", "porcine enzyme", "porcine enzymes"],
-    risk: "Critical",
-    reasoning:
-      "This is a pork-derived ingredient or processing aid, so it is a hard blocker for halal readiness.",
-    requiredDocuments: ["Ingredient replacement evidence", "Supplier declaration"],
-  },
-  {
-    domains: ["food", "export_compliance"],
-    matchers: ["alcohol", "ethanol", "ethyl alcohol", "wine", "beer", "spirits", "liquor", "liquor-filled", "vodka", "rum", "whiskey", "whisky", "brandy"],
-    risk: "Critical",
-    reasoning:
-      "This ingredient is an intoxicant or consumption alcohol, so it is a hard blocker for halal readiness.",
-    requiredDocuments: ["Alcohol-free formulation proof", "Supplier declaration"],
-  },
-  {
-    domains: ["food", "export_compliance"],
-    matchers: ["blood sausage", "black pudding", "flowing blood", "liquid blood"],
-    risk: "Critical",
-    reasoning: "Flowing or liquid blood is a hard blocker for halal readiness.",
-    requiredDocuments: ["Ingredient replacement evidence", "Supplier declaration"],
-  },
-  {
-    domains: ["food", "export_compliance"],
-    matchers: ["carrion", "dead animal", "died naturally", "strangled animal", "gored animal"],
-    risk: "Critical",
-    reasoning:
-      "Meat from an animal that died before proper slaughter is a hard blocker for halal readiness.",
-    requiredDocuments: ["Slaughter certificate", "Supplier declaration"],
-  },
-  {
-    domains: ["food", "export_compliance"],
-    matchers: ["non-zabiha", "non zabiha", "non halal meat", "non-halal meat", "not halal slaughtered"],
-    risk: "Critical",
-    reasoning:
-      "Meat that is not confirmed as zabiha or halal-slaughtered is a hard blocker until replaced or proven halal.",
-    requiredDocuments: ["Halal slaughter certificate", "Supplier declaration"],
-  },
-  {
-    domains: ["food", "export_compliance"],
-    matchers: ["lion", "dog meat", "wolf", "falcon", "vulture", "bird of prey"],
-    risk: "Critical",
-    reasoning: "Fanged predators and birds of prey are hard blockers for halal readiness.",
-    requiredDocuments: ["Ingredient replacement evidence", "Supplier declaration"],
-  },
-  {
-    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
-    matchers: ["gelatin", "gelatine"],
-    risk: "High",
-    reasoning:
-      "Gelatin needs source confirmation because it may be pork-derived, non-zabiha animal-derived, fish-derived, or halal-certified.",
-    requiredDocuments: ["Gelatin source certificate", "Halal certificate", "Supplier declaration"],
-  },
-  {
-    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
-    matchers: ["mono- and diglycerides", "monoglyceride", "diglyceride", "e471"],
-    risk: "Medium",
-    reasoning:
-      "Mono- and diglycerides can come from vegetable oils or animal fat, so source proof is needed before clearance.",
-    requiredDocuments: ["Ingredient origin proof", "Supplier declaration", "Halal certificate"],
-  },
-  {
-    domains: ["food", "export_compliance", "pharmaceuticals"],
-    matchers: ["enzyme", "enzymes", "rennet"],
-    risk: "Medium",
-    reasoning:
-      "Enzymes and rennet can be microbial or animal-derived, so the source and slaughter status must be verified.",
-    requiredDocuments: ["Enzyme source statement", "Supplier declaration", "Halal certificate"],
-  },
-  {
-    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
-    matchers: ["natural flavor", "natural flavour", "artificial flavor", "artificial flavour", "flavoring", "flavouring"],
-    risk: "Medium",
-    reasoning:
-      "Flavor ingredients can hide alcohol carriers or animal-derived subcomponents, so formulation disclosure is needed.",
-    requiredDocuments: ["Ingredient specification sheet", "Alcohol-free carrier statement", "Supplier declaration"],
-  },
-  {
-    domains: ["food", "export_compliance"],
-    matchers: ["whey"],
-    risk: "Medium",
-    reasoning:
-      "Whey depends on the enzymes used in cheese-making, so the enzyme source must be confirmed.",
-    requiredDocuments: ["Enzyme source statement", "Supplier declaration", "Halal certificate"],
-  },
-  {
-    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
-    matchers: ["l-cysteine", "l cysteine", "cysteine"],
-    risk: "Medium",
-    reasoning:
-      "L-cysteine can come from human hair, feathers, synthetic, or microbial sources, so source evidence is required.",
-    requiredDocuments: ["Ingredient origin proof", "Supplier declaration"],
-  },
-  {
-    domains: ["food", "export_compliance"],
-    matchers: ["vanilla extract"],
-    risk: "Medium",
-    reasoning:
-      "Vanilla extract often contains ethanol, so alcohol-free proof or formulation evidence is needed.",
-    requiredDocuments: ["Alcohol-free formulation proof", "Ingredient specification sheet", "Supplier declaration"],
-  },
-  {
-    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
-    matchers: ["confectioner's glaze", "confectioners glaze", "shellac", "e904"],
-    risk: "High",
-    reasoning:
-      "Confectioner's glaze and shellac are insect-derived and should stay under review until the certifier accepts the source.",
-    requiredDocuments: ["Ingredient origin proof", "Certifier review note", "Supplier declaration"],
-  },
-  {
-    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
-    matchers: ["stearic acid", "glycerin", "glycerol"],
-    risk: "Medium",
-    reasoning:
-      "Stearic acid and glycerin can be plant-based, synthetic, or animal-derived, so source confirmation is required.",
-    requiredDocuments: ["Vegan or plant-origin proof", "Supplier declaration"],
-  },
-  {
-    domains: ["food", "cosmetics", "export_compliance", "pharmaceuticals"],
-    matchers: ["carmine", "cochineal", "e120"],
-    risk: "High",
-    reasoning:
-      "Carmine is made from cochineal insects and is prohibited or disputed by many reviewers, so it should stay blocked or under strict certifier review.",
-    requiredDocuments: ["Ingredient replacement evidence", "Certifier review note", "Supplier declaration"],
-  },
-  {
-    domains: ["food", "export_compliance"],
-    matchers: ["water", "salt", "sea salt", "sugar", "cane sugar", "sucrose", "soybean oil", "soy oil", "palm oil", "sunflower oil", "canola oil", "olive oil", "wheat flour", "rice flour", "corn flour", "corn starch", "maize starch", "tapioca starch", "cocoa powder", "cocoa mass", "hazelnut", "milk powder", "skimmed milk powder", "whole milk powder", "soy lecithin", "sunflower lecithin"],
-    risk: "Low",
-    reasoning:
-      "This is a common baseline food ingredient with no direct halal red flag by name, so it can stay low risk unless supplier evidence says otherwise.",
-    requiredDocuments: [],
-  },
-  {
-    domains: ["food", "export_compliance"],
-    matchers: ["glucose syrup", "dextrose", "maltodextrin", "cocoa butter", "rice", "almond", "peanut", "pea protein", "potato starch"],
-    risk: "Low",
-    reasoning:
-      "This ingredient is commonly treated as low risk by name and usually does not need special halal escalation unless the supplier specification says otherwise.",
-    requiredDocuments: [],
-  },
-  {
-    domains: ["cosmetics", "pharmaceuticals"],
-    matchers: ["water", "aqua", "purified water", "cellulose", "microcrystalline cellulose"],
-    risk: "Low",
-    reasoning:
-      "This ingredient is commonly treated as low risk by name and usually does not need special halal escalation unless the supplier specification says otherwise.",
-    requiredDocuments: [],
-  },
-  {
-    domains: ["pharmaceuticals"],
-    matchers: ["hypromellose", "hydroxypropyl methylcellulose", "povidone", "silicon dioxide", "colloidal silicon dioxide", "citric acid"],
-    risk: "Low",
-    reasoning:
-      "This excipient is usually treated as low risk by name and can stay low risk unless supplier evidence introduces a source concern.",
-    requiredDocuments: [],
-  },
-  {
-    domains: ["cosmetics"],
-    matchers: ["alcohol", "ethanol", "isopropyl alcohol", "benzyl alcohol"],
-    risk: "Medium",
-    reasoning:
-      "Alcohol in cosmetics needs source and formulation review before approval because concentration and use can change the halal decision.",
-    requiredDocuments: ["Alcohol content statement", "Supplier declaration"],
-  },
-  {
-    domains: ["cosmetics", "pharmaceuticals"],
-    matchers: ["collagen"],
-    risk: "High",
-    reasoning:
-      "Collagen is often animal-derived, so halal review depends on verified species, source, and processing evidence.",
-    requiredDocuments: ["Animal-origin statement", "Halal certificate", "Supplier declaration"],
-  },
-  {
-    domains: ["cosmetics", "pharmaceuticals"],
-    matchers: ["glycerin", "glycerol"],
-    risk: "Medium",
-    reasoning:
-      "Glycerin may be plant, synthetic, or animal-derived, so the source must be confirmed before it can be cleared.",
-    requiredDocuments: ["Vegan or plant-origin proof", "Supplier declaration"],
-  },
-  {
-    domains: ["cosmetics"],
-    matchers: ["keratin"],
-    risk: "High",
-    reasoning:
-      "Keratin is commonly animal-derived, so it should stay under strict review until halal source evidence is available.",
-    requiredDocuments: ["Animal-origin statement", "Halal certificate"],
-  },
-  {
-    domains: ["cosmetics"],
-    matchers: ["lanolin"],
-    risk: "Medium",
-    reasoning:
-      "Lanolin comes from sheep wool, so the animal-source and processing route should be documented for halal cosmetic review.",
-    requiredDocuments: ["Animal-origin statement", "Supplier declaration"],
-  },
-  {
-    domains: ["cosmetics"],
-    matchers: ["carmine", "cochineal"],
-    risk: "Critical",
-    reasoning:
-      "Carmine is insect-derived, so it is a strong halal concern and should not be cleared without careful review.",
-    requiredDocuments: ["Animal-origin statement", "Halal certificate"],
-  },
-  {
-    domains: ["cosmetics"],
-    matchers: ["fragrance", "parfum", "perfume"],
-    risk: "Medium",
-    reasoning:
-      "Fragrance blends can hide alcohol carriers or animal-derived subcomponents, so formulation disclosure is needed before halal review.",
-    requiredDocuments: ["Alcohol content statement", "Supplier declaration", "Ingredient specification sheet"],
-  },
-  {
-    domains: ["cosmetics", "pharmaceuticals"],
-    matchers: ["beeswax", "cera alba", "propolis"],
-    risk: "Medium",
-    reasoning:
-      "Bee-derived ingredients can be acceptable or debated depending on the certifier, so they should stay under documented review.",
-    requiredDocuments: ["Ingredient origin proof", "Certifier review note", "Supplier declaration"],
-  },
-  {
-    domains: ["cosmetics", "pharmaceuticals"],
-    matchers: ["stearic acid"],
-    risk: "Medium",
-    reasoning:
-      "Stearic acid can come from plant or animal fat, so halal review depends on clear source documentation.",
-    requiredDocuments: ["Animal-origin statement", "Vegan or plant-origin proof", "Supplier declaration"],
-  },
-  {
-    domains: ["cosmetics"],
-    matchers: ["cetearyl alcohol", "cetyl alcohol", "stearyl alcohol"],
-    risk: "Medium",
-    reasoning:
-      "Fatty alcohols such as cetearyl alcohol can be plant- or animal-derived, so source evidence is needed before approval.",
-    requiredDocuments: ["Vegan or plant-origin proof", "Supplier declaration"],
-  },
-  {
-    domains: ["cosmetics", "pharmaceuticals"],
-    matchers: ["polysorbate", "sorbitan monostearate", "sorbitan tristearate"],
-    risk: "Medium",
-    reasoning:
-      "Polysorbates and related emulsifiers may involve fatty-acid feedstocks that need source confirmation during halal review.",
-    requiredDocuments: ["Ingredient specification sheet", "Supplier declaration", "Vegan or plant-origin proof"],
-  },
-  {
-    domains: ["cosmetics", "pharmaceuticals"],
-    matchers: ["shellac"],
-    risk: "High",
-    reasoning:
-      "Shellac is insect-derived, so it should be treated as a strong halal concern until reviewed carefully.",
-    requiredDocuments: ["Animal-origin statement", "Halal certificate"],
-  },
-  {
-    domains: ["pharmaceuticals"],
-    matchers: ["gelatin", "gelatine"],
-    risk: "Critical",
-    reasoning:
-      "Gelatin in capsules or excipients is a major halal concern because species and halal processing must be verified clearly.",
-    requiredDocuments: ["Gelatin source certificate", "Capsule shell declaration", "Halal certificate"],
-  },
-  {
-    domains: ["pharmaceuticals"],
-    matchers: ["magnesium stearate"],
-    risk: "Medium",
-    reasoning:
-      "Magnesium stearate is a common excipient, but its fatty-acid source should be verified before halal review can treat it as low risk.",
-    requiredDocuments: ["Excipient origin statement", "Supplier declaration"],
-  },
-  {
-    domains: ["pharmaceuticals"],
-    matchers: ["pepsin", "trypsin"],
-    risk: "High",
-    reasoning:
-      "Enzymes such as pepsin and trypsin can come from animal sources, so halal review depends on verified origin and processing evidence.",
-    requiredDocuments: ["Animal-origin statement", "Halal certificate", "Scholar or technical review note"],
-  },
-  {
-    domains: ["pharmaceuticals"],
-    matchers: ["capsule shell", "softgel", "soft gel", "hard capsule", "capsule material"],
-    risk: "High",
-    reasoning:
-      "Capsule shell materials often require dedicated halal review because they may contain gelatin or other animal-derived inputs.",
-    requiredDocuments: ["Capsule shell declaration", "Gelatin source certificate", "Halal certificate"],
-  },
-];
-
-function getDomainLabel(domain: ComplianceDomain | undefined): string {
-  return DOMAIN_OPTIONS.find((option) => option.value === domain)?.label ?? "Food";
-}
-
-function getMarketLabel(market: string): string {
-  return MARKET_OPTIONS.find((option) => option.value === market)?.label ?? market;
-}
-
-function getRiskPriority(risk: string): number {
-  const normalizedRisk = risk.trim().toLowerCase();
-
-  if (normalizedRisk === "critical") {
-    return 4;
-  }
-
-  if (normalizedRisk === "high") {
-    return 3;
-  }
-
-  if (normalizedRisk === "medium") {
-    return 2;
-  }
-
-  if (normalizedRisk === "low") {
-    return 1;
-  }
-
-  return 0;
-}
-
-function findDomainIngredientRule(
-  domain: ComplianceDomain,
-  ingredient: string,
-): DomainIngredientRule | null {
-  const normalizedIngredient = ingredient.trim().toLowerCase();
-
-  return (
-    DOMAIN_INGREDIENT_RULES.find(
-      (rule) =>
-        rule.domains.includes(domain) &&
-        rule.matchers.some((matcher) => normalizedIngredient.includes(matcher)),
-    ) ?? null
-  );
-}
-
-function getMarketProfile(market: string): MarketProfile {
-  return (
-    MARKET_PROFILES[market] ?? {
-      label: market,
-      confidenceAdjustment: -4,
-      warningNote: `Needs market-specific evidence for ${market}`,
-      readinessSummary: {
-        "Low Risk": `Ready for ${market} review`,
-        "Needs Review": `Needs more evidence for ${market} review`,
-        "Not Ready": `Not ready for ${market} submission`,
-      },
-      defaultDocuments: ["Ingredient source proof", "Supplier documents", "Traceability record"],
-      strictBlockerIngredients: [],
-      strictReviewIngredients: ["flavor", "gelatin"],
-    }
-  );
-}
-
-function mergeUniqueStrings(left: string[], right: string[]): string[] {
-  return Array.from(new Set([...left, ...right]));
-}
-
-function applyDomainRuleToEntry(
-  entry: ComplianceEntry,
-  domain: ComplianceDomain,
-): ComplianceEntry {
-  const matchingRule = findDomainIngredientRule(domain, entry.ingredient);
-
-  if (!matchingRule) {
-    return entry;
-  }
-
-  return {
-    ...entry,
-    risk: matchingRule.risk,
-    reasoning: matchingRule.reasoning,
-    required_documents: mergeUniqueStrings(entry.required_documents, matchingRule.requiredDocuments),
-  };
-}
-
-function applyDomainKnowledgeToReport(
-  report: ComplianceReport,
-  domain: ComplianceDomain,
-): ComplianceReport {
-  const nextEntries = [...report.blockers, ...report.warnings, ...report.safe].map((entry) =>
-    applyDomainRuleToEntry(entry, domain),
-  );
-
-  const blockers = nextEntries.filter((entry) => getRiskPriority(entry.risk) >= 3);
-  const warnings = nextEntries.filter((entry) => getRiskPriority(entry.risk) === 2);
-  const safe = nextEntries.filter((entry) => getRiskPriority(entry.risk) === 1);
-  const overall_status: OverallStatus =
-    blockers.length > 0 ? "Not Ready" : warnings.length > 0 ? "Needs Review" : "Low Risk";
-
-  return {
-    ...report,
-    domain,
-    overall_status,
-    blockers,
-    warnings,
-    safe,
-    summary: {
-      ...report.summary,
-      blockers_count: blockers.length,
-      warnings_count: warnings.length,
-      human_readable: `${report.product_name} was analyzed for ${getDomainLabel(domain)} across ${report.summary.total_ingredients} ingredient(s): ${blockers.length} blocker(s), ${warnings.length} warning(s), and ${safe.length} low-risk ingredient(s). Overall status: ${overall_status}.`,
-    },
-  };
-}
-
-function buildInternalProductName({
-  productName,
-  domain,
-  market,
-  ingredients,
-}: {
-  productName: string;
-  domain: ComplianceDomain;
-  market: string;
-  ingredients: string[];
-}): string {
-  if (productName.trim().length > 0) {
-    return productName.trim();
-  }
-
-  const ingredientCount = ingredients.length || 1;
-
-  return `${getDomainLabel(domain)} scan with ${ingredientCount} ingredient${ingredientCount === 1 ? "" : "s"} for ${getMarketLabel(market)}`;
-}
-
-function mergeHistoryLists(
-  primaryHistory: ReportHistoryItem[],
-  secondaryHistory: ReportHistoryItem[],
-): ReportHistoryItem[] {
-  const merged = [...primaryHistory, ...secondaryHistory];
-  const seenIds = new Set<string>();
-
-  return merged.filter((item) => {
-    if (seenIds.has(item.id)) {
-      return false;
-    }
-
-    seenIds.add(item.id);
-    return true;
-  });
-}
-
-function matchesMarketIngredient(entry: ComplianceEntry, matchers: string[]): boolean {
-  const ingredient = entry.ingredient.toLowerCase();
-  return matchers.some((matcher) => ingredient.includes(matcher));
-}
-
-function mergeRequiredDocuments(existingDocuments: string[], market: string): string[] {
-  const defaults = getMarketProfile(market).defaultDocuments;
-  return Array.from(new Set([...existingDocuments, ...defaults]));
-}
-
-function applyMarketRulesToEntry(
-  entry: ComplianceEntry,
-  market: string,
-  lane: "blockers" | "warnings" | "safe",
-): ComplianceEntry {
-  const profile = getMarketProfile(market);
-  const laneMessage =
-    lane === "blockers"
-      ? `${profile.warningNote}. This item should stay blocked until the country-specific evidence is complete.`
-      : lane === "warnings"
-        ? `${profile.warningNote}. Review the country-specific evidence before submission.`
-        : `Low-risk for now, but ${profile.warningNote.toLowerCase()}.`;
-
-  return {
-    ...entry,
-    risk:
-      lane === "blockers"
-        ? `Blocked for ${profile.label}`
-        : lane === "warnings"
-          ? `Review for ${profile.label}`
-          : `Low risk for ${profile.label}`,
-    reasoning: `${simplifyReasoning(entry)} ${laneMessage}`,
-    required_documents: mergeRequiredDocuments(entry.required_documents, market),
-    affected_markets: Array.from(new Set([profile.label, ...entry.affected_markets])),
-  };
-}
-
-function applyMarketRulesToReport(report: ComplianceReport, market: string): ComplianceReport {
-  const profile = getMarketProfile(market);
-  const nextBlockers = report.blockers.map((entry) => applyMarketRulesToEntry(entry, market, "blockers"));
-  const strictWarnings = report.warnings.map((entry) => applyMarketRulesToEntry(entry, market, "warnings"));
-  const strictSafe = report.safe.map((entry) => applyMarketRulesToEntry(entry, market, "safe"));
-
-  const promotedWarnings = strictWarnings.filter((entry) =>
-    matchesMarketIngredient(entry, profile.strictBlockerIngredients),
-  );
-  const remainingWarnings = strictWarnings.filter(
-    (entry) => !matchesMarketIngredient(entry, profile.strictBlockerIngredients),
-  );
-  const promotedSafe = strictSafe.filter((entry) =>
-    matchesMarketIngredient(entry, profile.strictReviewIngredients),
-  );
-  const remainingSafe = strictSafe.filter(
-    (entry) => !matchesMarketIngredient(entry, profile.strictReviewIngredients),
-  );
-
-  const blockers = [...nextBlockers, ...promotedWarnings].map((entry) => ({
-    ...entry,
-    risk: `Blocked for ${profile.label}`,
-  }));
-  const warnings = [...remainingWarnings, ...promotedSafe].map((entry) => ({
-    ...entry,
-    risk: `Review for ${profile.label}`,
-  }));
-  const safe = remainingSafe;
-
-  return {
-    ...report,
-    market,
-    blockers,
-    warnings,
-    safe,
-    overall_status:
-      blockers.length > 0
-        ? "Not Ready"
-        : warnings.length > 0
-          ? "Needs Review"
-          : "Low Risk",
-    summary: {
-      ...report.summary,
-      blockers_count: blockers.length,
-      warnings_count: warnings.length,
-      human_readable: profile.readinessSummary[
-        blockers.length > 0 ? "Not Ready" : warnings.length > 0 ? "Needs Review" : "Low Risk"
-      ],
-    },
-  };
-}
-
-function getMarketChecklist(report: ComplianceReport, market: string) {
-  const hasBlockers = report.blockers.length > 0;
-  const hasWarnings = report.warnings.length > 0;
-
-  return [
-    {
-      label: "Ingredient review",
-      state: hasBlockers ? "Required" : hasWarnings ? "Review" : "Ready",
-    },
-    {
-      label: "Supplier documents",
-      state: report.blockers.length + report.warnings.length > 0 ? "Required" : "Ready",
-    },
-    {
-      label: "Traceability",
-      state: market === "UAE" || market === "European Union" ? "Required" : hasWarnings ? "Review" : "Ready",
-    },
-    {
-      label: "Labeling",
-      state: hasWarnings ? "Review" : "Ready",
-    },
-    {
-      label: "Export pack readiness",
-      state: hasBlockers ? "Blocked" : hasWarnings ? "Review" : "Ready",
-    },
-  ];
-}
-
-type EvidenceDocumentStatus = "Required now" | "Review soon" | "Prepare";
-
-type EvidenceDocumentItem = {
-  name: string;
-  status: EvidenceDocumentStatus;
-  relatedIngredients: string[];
-};
-
-function getEvidenceStatusPriority(status: EvidenceDocumentStatus) {
-  if (status === "Required now") {
-    return 3;
-  }
-
-  if (status === "Review soon") {
-    return 2;
-  }
-
-  return 1;
-}
-
-function collectEvidenceDocuments(
-  report: ComplianceReport,
-  market: string,
-): EvidenceDocumentItem[] {
-  const evidenceMap = new Map<string, EvidenceDocumentItem>();
-  const upsertDocument = (
-    name: string,
-    status: EvidenceDocumentStatus,
-    ingredient?: string,
-  ) => {
-    const normalizedName = name.trim();
-
-    if (!normalizedName) {
-      return;
-    }
-
-    const currentItem = evidenceMap.get(normalizedName);
-
-    if (!currentItem) {
-      evidenceMap.set(normalizedName, {
-        name: normalizedName,
-        status,
-        relatedIngredients: ingredient ? [ingredient] : [],
-      });
-      return;
-    }
-
-    if (getEvidenceStatusPriority(status) > getEvidenceStatusPriority(currentItem.status)) {
-      currentItem.status = status;
-    }
-
-    if (ingredient && !currentItem.relatedIngredients.includes(ingredient)) {
-      currentItem.relatedIngredients.push(ingredient);
-    }
-  };
-
-  for (const entry of report.blockers) {
-    for (const document of entry.required_documents) {
-      upsertDocument(document, "Required now", entry.ingredient);
-    }
-  }
-
-  for (const entry of report.warnings) {
-    for (const document of entry.required_documents) {
-      upsertDocument(document, "Review soon", entry.ingredient);
-    }
-  }
-
-  for (const document of getMarketProfile(market).defaultDocuments) {
-    upsertDocument(document, "Prepare");
-  }
-
-  return Array.from(evidenceMap.values()).sort((left, right) => {
-    const statusDifference =
-      getEvidenceStatusPriority(right.status) - getEvidenceStatusPriority(left.status);
-
-    if (statusDifference !== 0) {
-      return statusDifference;
-    }
-
-    return left.name.localeCompare(right.name);
-  });
-}
-
-type CodePayload = {
-  ingredients: string[];
-  productName?: string;
-  market?: string;
-  domain?: ComplianceDomain;
-  sourceLabel: string;
-};
-
-type ParsedCodeOutcome =
-  | {
-      kind: "payload";
-      payload: CodePayload;
-    }
-  | {
-      kind: "barcode";
-      rawValue: string;
-    };
-
-function extractIngredientsFromText(rawValue: string): string[] {
-  const normalized = rawValue.replace(/\|/g, "\n");
-  const matchedIngredients = normalized.match(/ingredients?\s*[:=-]\s*([\s\S]+)/i);
-
-  if (matchedIngredients?.[1]) {
-    return parseIngredients(matchedIngredients[1]);
-  }
-
-  return parseIngredients(normalized);
-}
-
-function extractBarcodeFromUrl(value: string): string | null {
-  try {
-    const parsedUrl = new URL(value);
-    const fromSearchParams = [
-      parsedUrl.searchParams.get("code"),
-      parsedUrl.searchParams.get("barcode"),
-      parsedUrl.searchParams.get("gtin"),
-      parsedUrl.searchParams.get("ean"),
-      parsedUrl.searchParams.get("upc"),
-    ].find((item) => item && /^\d{8,14}$/.test(item.trim()));
-
-    if (fromSearchParams) {
-      return fromSearchParams.trim();
-    }
-
-    const pathSegments = parsedUrl.pathname
-      .split("/")
-      .map((segment) => segment.trim())
-      .filter(Boolean);
-    const fromPath = [...pathSegments].reverse().find((segment) => /^\d{8,14}$/.test(segment));
-
-    return fromPath ?? null;
-  } catch (_error) {
-    return null;
-  }
-}
-
-function parseCodePayload(rawValue: string): ParsedCodeOutcome | null {
-  const trimmedValue = rawValue.trim();
-
-  if (!trimmedValue) {
-    return null;
-  }
-
-  try {
-    const parsedUrl = new URL(trimmedValue);
-    const urlIngredients = parseIngredients(
-      parsedUrl.searchParams.get("ingredients") ??
-        parsedUrl.searchParams.get("ingredient_list") ??
-        parsedUrl.searchParams.get("items") ??
-        "",
-    );
-
-    if (urlIngredients.length > 0) {
-      const nextDomain = parsedUrl.searchParams.get("domain");
-
-      return {
-        kind: "payload",
-        payload: {
-          ingredients: urlIngredients,
-          productName: parsedUrl.searchParams.get("product_name") ?? undefined,
-          market: parsedUrl.searchParams.get("market") ?? undefined,
-          domain: isComplianceDomain(nextDomain) ? nextDomain : undefined,
-          sourceLabel: "QR code",
-        },
-      };
-    }
-
-    const barcodeFromUrl = extractBarcodeFromUrl(trimmedValue);
-
-    if (barcodeFromUrl) {
-      return {
-        kind: "barcode",
-        rawValue: barcodeFromUrl,
-      };
-    }
-  } catch (_error) {
-    // Ignore non-URL values and keep checking other payload shapes.
-  }
-
-  try {
-    const parsedJson = JSON.parse(trimmedValue) as Record<string, unknown>;
-    const rawIngredients =
-      parsedJson.ingredients ??
-      parsedJson.ingredient_list ??
-      parsedJson.items ??
-      parsedJson.ingredients_text;
-
-    const ingredients = Array.isArray(rawIngredients)
-      ? rawIngredients
-          .filter((value): value is string => typeof value === "string")
-          .flatMap((value) => parseIngredients(value))
-      : typeof rawIngredients === "string"
-        ? parseIngredients(rawIngredients)
-        : [];
-
-    if (ingredients.length > 0) {
-      const nextDomain =
-        typeof parsedJson.domain === "string" ? parsedJson.domain : undefined;
-
-      return {
-        kind: "payload",
-        payload: {
-          ingredients,
-          productName:
-            typeof parsedJson.product_name === "string" ? parsedJson.product_name : undefined,
-          market: typeof parsedJson.market === "string" ? parsedJson.market : undefined,
-          domain: isComplianceDomain(nextDomain) ? nextDomain : undefined,
-          sourceLabel: "QR code",
-        },
-      };
-    }
-  } catch (_error) {
-    // Ignore non-JSON values and try plain text extraction.
-  }
-
-  const ingredients = extractIngredientsFromText(trimmedValue);
-  const looksLikeIngredientText =
-    /ingredients?\s*[:=-]/i.test(trimmedValue) || /[,;\n]/.test(trimmedValue);
-
-  if (ingredients.length > 0 && looksLikeIngredientText) {
-    return {
-      kind: "payload",
-      payload: {
-        ingredients,
-        sourceLabel: "QR code",
-      },
-    };
-  }
-
-  if (/^\d{8,14}$/.test(trimmedValue)) {
-    return {
-      kind: "barcode",
-      rawValue: trimmedValue,
-    };
-  }
-
-  return null;
-}
-
-function formatBarcodeSourceLabel(code: string, sourceLabel: string, brand?: string): string {
-  const trimmedBrand = brand?.trim();
-  return trimmedBrand && trimmedBrand.length > 0
-    ? `${sourceLabel} (${trimmedBrand} • ${code})`
-    : `${sourceLabel} (${code})`;
-}
-
-async function resolveBarcodePayload(
-  code: string,
-  domain: ComplianceDomain,
-): Promise<CodePayload | null> {
-  const demoLookup = DEMO_BARCODE_LOOKUPS[code];
-
-  if (demoLookup) {
-    const demoIngredients = parseIngredients(demoLookup.ingredients_text);
-
-    if (demoIngredients.length > 0) {
-      return {
-        ingredients: demoIngredients,
-        productName: demoLookup.product_name,
-        sourceLabel: formatBarcodeSourceLabel(code, "Retail barcode lookup", demoLookup.brand),
-      };
-    }
-  }
-
-  const lookupResult = await lookupBarcodeProduct(code, domain);
-
-  if (!lookupResult) {
-    return null;
-  }
-
-  const ingredients = parseIngredients(lookupResult.ingredients_text);
-
-  if (ingredients.length === 0) {
-    return null;
-  }
-
-  return {
-    ingredients,
-    productName: lookupResult.product_name,
-    sourceLabel: formatBarcodeSourceLabel(code, lookupResult.source_label, lookupResult.brand),
-  };
-}
-
-function isComplianceDomain(value: string | null | undefined): value is ComplianceDomain {
-  return (
-    value === "food" ||
-    value === "cosmetics" ||
-    value === "export_compliance" ||
-    value === "pharmaceuticals"
-  );
-}
+type ReportTab = "summary" | "blockers" | "warnings" | "safe";
 
 function AssistantPage() {
   const [submitted, setSubmitted] = useState(false);
@@ -1108,18 +123,35 @@ function AssistantPage() {
   const [isImportingFile, setIsImportingFile] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [report, setReport] = useState<ComplianceReport | null>(null);
+  const [lastScanAtIso, setLastScanAtIso] = useState<string>(new Date().toISOString());
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [guestEmail, setGuestEmail] = useState<string | null>(null);
-  const [guestHistory, setGuestHistory] = useState<ReportHistoryItem[]>([]);
   const ingredientEditorRef = useRef<HTMLLabelElement | null>(null);
   const resultsTopRef = useRef<HTMLDivElement | null>(null);
-  const activeHistory = report?.history ?? guestHistory;
 
   useEffect(() => {
-    const nextGuestEmail = getActiveGuestEmail();
-    setGuestEmail(nextGuestEmail);
-    setGuestHistory(getGuestHistory(nextGuestEmail));
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const shouldAutoScan = params.get("scan") === "1";
+
+    if (!shouldAutoScan || !shouldAutoOpenScannerOnThisDevice()) {
+      return;
+    }
+
+    setTimeout(() => {
+      const scannerTrigger = document.querySelector<HTMLButtonElement>(
+        "[data-scan-trigger='true']",
+      );
+      scannerTrigger?.click();
+    }, 120);
+
+    params.delete("scan");
+    const nextQuery = params.toString();
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash}`;
+    window.history.replaceState({}, "", nextUrl);
   }, []);
 
   useEffect(() => {
@@ -1203,12 +235,8 @@ function AssistantPage() {
 
       const domainAwareReport = applyDomainKnowledgeToReport(nextReport, nextDomain);
       const marketAwareReport = applyMarketRulesToReport(domainAwareReport, nextMarket.trim());
-      const nextHistory = guestEmail ? saveGuestReport(guestEmail, marketAwareReport) : guestHistory;
-      setGuestHistory(nextHistory);
-      setReport({
-        ...marketAwareReport,
-        history: mergeHistoryLists(nextHistory, marketAwareReport.history ?? []),
-      });
+      setReport(marketAwareReport);
+      setLastScanAtIso(new Date().toISOString());
     } catch (scanError) {
       setReport(null);
       setError(scanError instanceof Error ? scanError.message : "Unable to run the scan.");
@@ -1328,20 +356,6 @@ function AssistantPage() {
     setSubmitted(false);
   };
 
-  const runDemoSample = async (sample: (typeof SAMPLE_SCANS)[number]) => {
-    handleImageSelected(null);
-    setExtractionResult(null);
-    setExtractionError(null);
-    setFileImportMessage(null);
-    setFileImportError(null);
-    await runPreparedScan({
-      nextProductName: sample.productName,
-      nextIngredientsInput: sample.ingredients,
-      nextMarket: sample.market,
-      nextDomain: sample.domain,
-    });
-  };
-
   const applyCodePayload = (payload: CodePayload) => {
     setIngredientsInput(payload.ingredients.join("\n"));
 
@@ -1375,41 +389,11 @@ function AssistantPage() {
       <Nav />
       <div className="mx-auto grid max-w-[1400px] grid-cols-1 lg:grid-cols-[280px_1fr]">
         <aside className="border-b border-hairline px-4 py-4 lg:border-r lg:border-b-0 lg:py-6">
-          <button
-            onClick={() => {
-              setSubmitted(false);
-              setReport(null);
-              setError(null);
-              setProductName("");
-              setIngredientsInput("");
-              setExtractionResult(null);
-              setExtractionError(null);
-              setFileImportMessage(null);
-              setFileImportError(null);
-              handleImageSelected(null);
-            }}
-            className="group flex w-full items-center justify-between rounded-xl border border-hairline bg-surface px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-surface-elevated"
-          >
-            <span className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              New product scan
-            </span>
-            <Sparkles className="h-3.5 w-3.5 text-jade" />
-          </button>
+          <div className="space-y-5">
+            <AssistantSidebarContext domain={domain} market={market} />
 
-          <div className="mt-8">
-            <div className="flex items-center justify-between gap-3 px-2">
-              <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-                Sample products
-              </div>
-              <button
-                type="button"
-                onClick={() => void runDemoSample(SAMPLE_SCANS[2])}
-                className="inline-flex items-center gap-1.5 rounded-full border border-jade/25 bg-jade/10 px-3 py-1 text-[10px] font-medium text-jade transition-colors hover:bg-jade/15"
-              >
-                <ArrowUp className="h-3 w-3" />
-                Run export demo
-              </button>
+            <div className="px-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+              Sample products
             </div>
             <ul className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-1">
               {SAMPLE_SCANS.map((sample) => (
@@ -1428,21 +412,6 @@ function AssistantPage() {
               ))}
             </ul>
           </div>
-
-          <GuestWorkspaceCard
-            guestEmail={guestEmail}
-            historyCount={guestHistory.length}
-            onSignOut={() => {
-              clearActiveGuestEmail();
-              setGuestEmail(null);
-              setGuestHistory([]);
-              setReport((currentReport) =>
-                currentReport ? { ...currentReport, history: [] } : currentReport,
-              );
-            }}
-          />
-
-          <HistoryPanel history={activeHistory} />
         </aside>
 
         <main className="relative min-h-[calc(100vh-4rem)] px-4 py-6 sm:py-8 md:px-6 lg:px-10">
@@ -1516,7 +485,13 @@ function AssistantPage() {
                           transition={{ duration: 0.25 }}
                         >
                           {tab === "summary" && (
-                            <SummaryTab report={report} onViewAll={(nextTab) => setTab(nextTab)} />
+                            <SummaryTab
+                              report={report}
+                              domain={report?.domain ?? domain}
+                              fallbackMarket={market}
+                              scanDateIso={lastScanAtIso}
+                              onViewAll={(nextTab) => setTab(nextTab)}
+                            />
                           )}
                           {tab === "blockers" && (
                             <EntryList
@@ -1539,7 +514,6 @@ function AssistantPage() {
                               tone="safe"
                             />
                           )}
-                          {tab === "history" && <HistoryTab history={activeHistory} />}
                         </motion.div>
                       </AnimatePresence>
                     </div>
@@ -1567,333 +541,71 @@ function AssistantPage() {
   );
 }
 
-function parseIngredients(value: string): string[] {
-  return value
-    .split(/\r?\n|,/)
-    .map((ingredient) => ingredient.trim())
-    .filter(Boolean);
-}
-
-function isImportHeader(value: string): boolean {
-  return ["ingredient", "ingredients", "item", "items"].includes(value.trim().toLowerCase());
-}
-
-function normalizeCellText(cell: unknown): string {
-  if (cell === null || cell === undefined) {
-    return "";
-  }
-
-  return String(cell).trim();
-}
-
-function isSummarySheetName(name: string): boolean {
-  return /summary|meta|readme|notes/i.test(name);
-}
-
-function getIngredientColumnIndexes(headerRow: unknown[]): number[] {
-  const exactMatches = new Set([
-    "ingredient",
-    "ingredients",
-    "ingredient primary",
-    "ingredient secondary",
-    "ingredient_primary",
-    "ingredient_secondary",
-    "item",
-    "items",
-  ]);
-
-  return headerRow.reduce<number[]>((matches, cell, index) => {
-    const normalized = normalizeCellText(cell).toLowerCase();
-    if (!normalized) {
-      return matches;
-    }
-
-    if (exactMatches.has(normalized) || normalized.includes("ingredient")) {
-      matches.push(index);
-    }
-
-    return matches;
-  }, []);
-}
-
-function looksLikeMetadataRow(row: string[]): boolean {
-  const joined = row.join(" ").toLowerCase();
+function AssistantSidebarContext({ domain, market }: { domain: ComplianceDomain; market: string }) {
+  const selectedMarket = MARKET_OPTIONS.find((option) => option.value === market);
+  const selectedDomain = DOMAIN_OPTIONS.find((option) => option.value === domain);
+  const legend = [
+    {
+      label: "Not Ready",
+      helper: "Blocker found",
+      dot: "bg-verdict-haram",
+    },
+    {
+      label: "Needs Review",
+      helper: "Evidence still needed",
+      dot: "bg-verdict-mushbooh",
+    },
+    {
+      label: "Low Risk",
+      helper: "Ready for preparation review",
+      dot: "bg-verdict-halal",
+    },
+  ];
 
   return (
-    joined.includes("summary") ||
-    joined.includes("demo sample") ||
-    joined.includes("product rows") ||
-    joined.includes("ingredient columns") ||
-    joined.includes("countries") ||
-    joined.includes("categories")
+    <div className="space-y-3">
+      <div className="rounded-2xl border border-hairline bg-surface p-4">
+        <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-widest text-jade">
+          <MapPinned className="h-3.5 w-3.5" />
+          Current setup
+        </div>
+        <div className="mt-4 space-y-3">
+          <SidebarFact label="Domain" value={selectedDomain?.label ?? getDomainLabel(domain)} />
+          <SidebarFact label="Country" value={selectedMarket?.label ?? market} />
+          <SidebarFact label="Scan mode" value="Label, file, code, or manual entry" />
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-hairline bg-surface p-4">
+        <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+          <ShieldCheck className="h-3.5 w-3.5 text-jade" />
+          Readiness legend
+        </div>
+        <div className="mt-3 space-y-2.5">
+          {legend.map((item) => (
+            <div key={item.label} className="flex items-start gap-2.5">
+              <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${item.dot}`} />
+              <div className="min-w-0">
+                <div className="text-xs text-foreground">{item.label}</div>
+                <div className="text-[11px] leading-relaxed text-muted-foreground">
+                  {item.helper}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
-function dedupeIngredients(values: string[]): string[] {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
-}
-
-function extractIngredientsFromSheetRows(rows: unknown[][]): string[] {
-  if (!rows.length) {
-    return [];
-  }
-
-  const headerRow = rows.find((row) =>
-    row.some((cell) => normalizeCellText(cell).length > 0),
-  ) ?? [];
-  const ingredientColumnIndexes = getIngredientColumnIndexes(headerRow);
-
-  if (ingredientColumnIndexes.length > 0) {
-    return dedupeIngredients(
-      rows
-        .slice(rows.indexOf(headerRow) + 1)
-        .flatMap((row) =>
-          ingredientColumnIndexes.flatMap((columnIndex) =>
-            parseIngredients(normalizeCellText(row[columnIndex])),
-          ),
-        )
-        .filter((cell) => cell.length > 0 && !isImportHeader(cell)),
-    ).slice(0, MAX_IMPORTED_FILE_ROWS);
-  }
-
-  const cdColumnIngredients = dedupeIngredients(
-    rows
-      .flatMap((row) => [normalizeCellText(row[2]), normalizeCellText(row[3])])
-      .filter((cell) => cell.length > 0 && !isImportHeader(cell))
-      .flatMap((cell) => parseIngredients(cell)),
-  ).filter((cell) => !looksLikeMetadataRow([cell]));
-
-  if (cdColumnIngredients.length > 0) {
-    return cdColumnIngredients.slice(0, MAX_IMPORTED_FILE_ROWS);
-  }
-
-  return dedupeIngredients(
-    rows
-      .flatMap((row) => row.map((cell) => normalizeCellText(cell)))
-      .filter((cell) => cell.length > 0 && !isImportHeader(cell))
-      .flatMap((cell) => parseIngredients(cell)),
-  ).slice(0, MAX_IMPORTED_FILE_ROWS);
-}
-
-function extractIngredientsFromWorkbookSheets(
-  workbook: unknown,
-): string[] {
-  const sheets = Array.isArray(workbook)
-    ? workbook
-        .map((entry) => {
-          if (
-            entry &&
-            typeof entry === "object" &&
-            "data" in entry &&
-            Array.isArray((entry as { data?: unknown }).data)
-          ) {
-            const sheetEntry = entry as { sheet?: string; data: unknown[][] };
-            return { sheet: sheetEntry.sheet ?? "", data: sheetEntry.data };
-          }
-
-          if (Array.isArray(entry)) {
-            return { sheet: "", data: entry as unknown[][] };
-          }
-
-          return null;
-        })
-        .filter((entry): entry is { sheet: string; data: unknown[][] } => Boolean(entry))
-    : [];
-
-  const candidateSheets = sheets.filter(
-    (sheet) => sheet.data.length > 0 && !isSummarySheetName(sheet.sheet),
+function SidebarFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="mt-1 text-sm leading-snug text-foreground">{value}</div>
+    </div>
   );
-
-  const prioritizedSheet =
-    candidateSheets.find((sheet) =>
-      sheet.data.some((row) => getIngredientColumnIndexes(row).length > 0),
-    ) ?? candidateSheets[0] ?? sheets.find((sheet) => sheet.data.length > 0);
-
-  if (!prioritizedSheet) {
-    return [];
-  }
-
-  return extractIngredientsFromSheetRows(prioritizedSheet.data);
-}
-
-function sanitizeExtractedIngredients(ingredients: unknown): string[] {
-  const ingredientList = Array.isArray(ingredients) ? ingredients : [];
-
-  return Array.from(
-    new Set(
-      ingredientList
-        .filter((ingredient): ingredient is string => typeof ingredient === "string")
-        .map((ingredient) => ingredient.trim())
-        .filter(Boolean),
-    ),
-  );
-}
-
-async function readIngredientsFromFile(file: File): Promise<string[]> {
-  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
-
-  if (["txt", "csv", "tsv"].includes(extension)) {
-    const text = await file.text();
-    const firstLines = text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0 && !isImportHeader(line))
-      .slice(0, MAX_IMPORTED_FILE_ROWS)
-      .join("\n");
-
-    return parseIngredients(firstLines);
-  }
-
-  if (extension === "xlsx") {
-    const workbook = await readExcelFile(file);
-    const ingredients = extractIngredientsFromWorkbookSheets(workbook);
-
-    if (ingredients.length > 0) {
-      return ingredients;
-    }
-
-    throw new Error("No ingredient columns were found in this Excel file.");
-  }
-
-  if (extension === "docx") {
-    const mammoth = await import("mammoth");
-    const result = await mammoth.default.extractRawText({ arrayBuffer: await file.arrayBuffer() });
-    const firstLines = result.value
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0 && !isImportHeader(line))
-      .slice(0, MAX_IMPORTED_FILE_ROWS)
-      .join("\n");
-
-    return parseIngredients(firstLines);
-  }
-
-  throw new Error("Supported files: Excel (.xlsx), Word (.docx), CSV, TSV, and TXT.");
-}
-
-function readImageAsBase64(file: File): Promise<{ image_base64: string; mime_type: string }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      const [, base64 = ""] = result.split(",");
-
-      if (!base64) {
-        reject(new Error("Could not read the selected image."));
-        return;
-      }
-
-      resolve({ image_base64: base64, mime_type: file.type || "image/jpeg" });
-    };
-
-    reader.onerror = () => reject(new Error("Could not read the selected image."));
-    reader.readAsDataURL(file);
-  });
-}
-
-function statusToVerdict(status: OverallStatus): "halal" | "haram" | "mushbooh" {
-  if (status === "Not Ready") {
-    return "haram";
-  }
-
-  if (status === "Needs Review") {
-    return "mushbooh";
-  }
-
-  return "halal";
-}
-
-function getReadinessConfidence(status: OverallStatus, market: string): number {
-  const baseConfidence = status === "Not Ready" ? 88 : status === "Needs Review" ? 75 : 92;
-  return Math.max(52, Math.min(98, baseConfidence + getMarketProfile(market).confidenceAdjustment));
-}
-
-function simplifyReasoning(entry: ComplianceEntry): string {
-  const ingredient = entry.ingredient.toLowerCase();
-
-  const matchingRule =
-    DOMAIN_INGREDIENT_RULES.find((rule) =>
-      rule.matchers.some((matcher) => ingredient.includes(matcher)),
-    ) ?? null;
-
-  if (matchingRule) {
-    return matchingRule.reasoning;
-  }
-
-  if (ingredient.includes("gelatin")) {
-    return "Gelatin is usually animal-derived, so the source and halal certificate must be checked.";
-  }
-
-  if (ingredient.includes("collagen")) {
-    return "Collagen often comes from animals, so the source needs to be confirmed before approval.";
-  }
-
-  if (ingredient.includes("carmine")) {
-    return "Carmine is an insect-derived color, so it needs special review and evidence.";
-  }
-
-  return entry.reasoning;
-}
-
-function getReadinessCopy(status: OverallStatus, market: string): {
-  title: string;
-  description: string;
-  action: string;
-} {
-  const profile = getMarketProfile(market);
-
-  if (status === "Not Ready") {
-    return {
-      title: profile.readinessSummary["Not Ready"],
-      description:
-        "This market still has blocker ingredients or stricter evidence expectations that should be resolved before submission.",
-      action: `Complete the ${profile.label} evidence pack before moving forward.`,
-    };
-  }
-
-  if (status === "Needs Review") {
-    return {
-      title: profile.readinessSummary["Needs Review"],
-      description:
-        "No hard blocker is stopping the product, but this market still expects additional review evidence before submission.",
-      action: `Collect the ${profile.label} review documents and close the open evidence items.`,
-    };
-  }
-
-  return {
-    title: profile.readinessSummary["Low Risk"],
-    description:
-      "No blocker or warning ingredients were found after applying the current market rules and evidence checks.",
-    action: `Keep the ${profile.label} documents ready and continue with the next review step.`,
-  };
-}
-
-function getToneStyles(tone: "blocker" | "warning" | "safe") {
-  if (tone === "blocker") {
-    return {
-      card: "border-verdict-haram/25 bg-verdict-haram/5",
-      badge: "border-verdict-haram/30 bg-verdict-haram/10 text-verdict-haram",
-      icon: "text-verdict-haram",
-      action: "Resolve before submission",
-    };
-  }
-
-  if (tone === "warning") {
-    return {
-      card: "border-verdict-mushbooh/25 bg-verdict-mushbooh/5",
-      badge: "border-verdict-mushbooh/30 bg-verdict-mushbooh/10 text-verdict-mushbooh",
-      icon: "text-verdict-mushbooh",
-      action: "Review supporting evidence",
-    };
-  }
-
-  return {
-    card: "border-verdict-halal/35 bg-verdict-halal/10",
-    badge: "border-verdict-halal/40 bg-verdict-halal/15 text-verdict-halal",
-    icon: "text-verdict-halal",
-    action: "Ready for the next review step",
-  };
 }
 
 function IntroHeader() {
@@ -1903,10 +615,6 @@ function IntroHeader() {
         Scan a product before{" "}
         <span className="italic text-gradient-jade">certification review</span>
       </h1>
-      <p className="mx-auto mt-3 max-w-2xl text-center text-sm leading-relaxed text-muted-foreground">
-        Upload a label or enter ingredients, choose a target country, and let Halal Intelligence
-        group the risks, evidence needs, and saved report history
-      </p>
     </div>
   );
 }
@@ -1967,6 +675,7 @@ function ScanForm({
   );
   const [isStartingScanner, setIsStartingScanner] = useState(false);
   const [isLookingUpBarcode, setIsLookingUpBarcode] = useState(false);
+  const [highlightUploadEntry, setHighlightUploadEntry] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
   const scannerReaderRef = useRef<BrowserMultiFormatReader | null>(null);
@@ -1998,6 +707,39 @@ function ScanForm({
   };
 
   useEffect(() => stopCodeScanner, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const focusTarget = params.get("focus");
+
+    if (focusTarget !== "upload") {
+      return;
+    }
+
+    const scrollTimer = window.setTimeout(() => {
+      const uploadTrigger = document.querySelector<HTMLElement>("[data-upload-trigger='true']");
+      uploadTrigger?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightUploadEntry(true);
+    }, 140);
+
+    params.delete("focus");
+    const nextQuery = params.toString();
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash}`;
+    window.history.replaceState({}, "", nextUrl);
+
+    const clearTimer = window.setTimeout(() => {
+      setHighlightUploadEntry(false);
+    }, 2600);
+
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isCodeScannerOpen) {
@@ -2047,11 +789,7 @@ function ScanForm({
           undefined,
           videoRef.current,
           (result, _error, activeControls) => {
-            if (
-              cancelled ||
-              !result ||
-              detectionLockRef.current
-            ) {
+            if (cancelled || !result || detectionLockRef.current) {
               return;
             }
 
@@ -2149,237 +887,248 @@ function ScanForm({
         }}
         className="mt-10 rounded-[2rem] border border-hairline bg-surface p-4 shadow-elegant sm:p-6"
       >
-      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-        <label className="space-y-2">
-          <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            Domain
-          </span>
-          <select
-            value={domain}
-            onChange={(event) => onDomainChange(event.target.value as ComplianceDomain)}
-            className="w-full rounded-2xl border border-hairline bg-background/50 px-4 py-3 text-sm outline-none transition-colors focus:border-jade/50"
-          >
-            {DOMAIN_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            {DOMAIN_OPTIONS.find((option) => option.value === domain)?.helper}
-          </p>
-        </label>
-
-        <label className="space-y-2">
+        <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+          <label className="space-y-2">
             <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            Country
+              Domain
             </span>
-          <select
-            value={market}
-            onChange={(event) => onMarketChange(event.target.value)}
-            className="w-full rounded-2xl border border-hairline bg-background/50 px-4 py-3 text-sm outline-none transition-colors focus:border-jade/50"
-          >
-            {MARKET_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            {MARKET_OPTIONS.find((option) => option.value === market)?.authority}
-          </p>
-        </label>
-      </div>
+            <select
+              value={domain}
+              onChange={(event) => onDomainChange(event.target.value as ComplianceDomain)}
+              className="w-full rounded-2xl border border-hairline bg-background/50 px-4 py-3 text-sm outline-none transition-colors focus:border-jade/50"
+            >
+              {DOMAIN_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              {DOMAIN_OPTIONS.find((option) => option.value === domain)?.helper}
+            </p>
+          </label>
 
-      <div className="mt-4 rounded-[1.75rem] border border-dashed border-jade/30 bg-jade/5 p-4 sm:p-5">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start">
-          <div className="flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-jade">
-                <Camera className="h-3.5 w-3.5" />
-                Step 1 - Scan from label photo
+          <label className="space-y-2">
+            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              Country
+            </span>
+            <select
+              value={market}
+              onChange={(event) => onMarketChange(event.target.value)}
+              className="w-full rounded-2xl border border-hairline bg-background/50 px-4 py-3 text-sm outline-none transition-colors focus:border-jade/50"
+            >
+              {MARKET_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              {MARKET_OPTIONS.find((option) => option.value === market)?.authority}
+            </p>
+          </label>
+        </div>
+
+        <div className="mt-4 rounded-[1.75rem] border border-dashed border-jade/30 bg-jade/5 p-4 sm:p-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start">
+            <div className="flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-jade">
+                  <Camera className="h-3.5 w-3.5" />
+                  Step 1 - Scan from label photo
+                </div>
+              </div>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                Upload or take a photo of the ingredient label. Halal Intelligence extracts text
+                only, then you review and edit the ingredient list before running the compliance
+                scan.
+              </p>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background">
+                  <Camera className="h-4 w-4 text-jade" />
+                  Choose image
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(event) => onImageSelected(event.target.files?.[0] ?? null)}
+                    className="sr-only"
+                  />
+                </label>
+                <label
+                  data-upload-trigger="true"
+                  className={`inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm transition-colors hover:bg-background ${
+                    highlightUploadEntry
+                      ? "border-jade/45 bg-jade/12 shadow-[0_0_0_1px_rgba(83,188,131,0.18)]"
+                      : "border-hairline bg-background/60"
+                  }`}
+                >
+                  {isImportingFile ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-jade" />
+                  ) : (
+                    <FileUp className="h-4 w-4 text-jade" />
+                  )}
+                  Insert file
+                  <input
+                    type="file"
+                    accept=".xlsx,.docx,.csv,.tsv,.txt"
+                    onChange={(event) => {
+                      onImportIngredientFile(event.target.files?.[0] ?? null);
+                      event.target.value = "";
+                    }}
+                    className="sr-only"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsCodeScannerOpen(true)}
+                  data-scan-trigger="true"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background"
+                >
+                  <ScanLine className="h-4 w-4 text-jade" />
+                  Scan code
+                </button>
+                <button
+                  type="button"
+                  onClick={onExtractImage}
+                  disabled={isExtracting || !imagePreviewUrl}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-jade/25 bg-jade/10 px-4 py-2.5 text-sm font-medium text-jade transition-colors hover:bg-jade/15 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isExtracting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <WandSparkles className="h-4 w-4" />
+                  )}
+                  Extract ingredients
+                </button>
               </div>
             </div>
-            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              Upload or take a photo of the ingredient label. Halal Intelligence extracts text only,
-              then you review and edit the ingredient list before running the compliance scan.
-            </p>
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-              <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background">
-                <Camera className="h-4 w-4 text-jade" />
-                Choose image
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={(event) => onImageSelected(event.target.files?.[0] ?? null)}
-                  className="sr-only"
+
+            {imagePreviewUrl && (
+              <div className="overflow-hidden rounded-xl border border-hairline bg-background/50 md:w-40">
+                <img
+                  src={imagePreviewUrl}
+                  alt="Selected ingredient label preview"
+                  className="h-36 w-full object-cover"
                 />
-              </label>
-              <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background">
-                {isImportingFile ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-jade" />
-                ) : (
-                  <FileUp className="h-4 w-4 text-jade" />
-                )}
-                Insert file
-                <input
-                  type="file"
-                  accept=".xlsx,.docx,.csv,.tsv,.txt"
-                  onChange={(event) => {
-                    onImportIngredientFile(event.target.files?.[0] ?? null);
-                    event.target.value = "";
-                  }}
-                  className="sr-only"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={() => setIsCodeScannerOpen(true)}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-hairline bg-background/60 px-4 py-2.5 text-sm transition-colors hover:bg-background"
-              >
-                <ScanLine className="h-4 w-4 text-jade" />
-                Scan code
-              </button>
-              <button
-                type="button"
-                onClick={onExtractImage}
-                disabled={isExtracting || !imagePreviewUrl}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-jade/25 bg-jade/10 px-4 py-2.5 text-sm font-medium text-jade transition-colors hover:bg-jade/15 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isExtracting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <WandSparkles className="h-4 w-4" />
-                )}
-                Extract ingredients
-              </button>
-            </div>
+              </div>
+            )}
           </div>
 
-          {imagePreviewUrl && (
-            <div className="overflow-hidden rounded-xl border border-hairline bg-background/50 md:w-40">
-              <img
-                src={imagePreviewUrl}
-                alt="Selected ingredient label preview"
-                className="h-36 w-full object-cover"
-              />
+          {extractionError && <ErrorCard message={extractionError} compact />}
+
+          {extractionResult && (
+            <div className="mt-4 grid gap-3 rounded-2xl border border-jade/25 bg-background/45 p-4 md:grid-cols-[1fr_0.9fr]">
+              <div>
+                <div className="flex items-center gap-2 text-xs text-jade">
+                  <ClipboardCheck className="h-3.5 w-3.5" />
+                  Step 2 - Review extracted ingredients
+                </div>
+                <p className="mt-2 text-sm leading-relaxed text-foreground/85">
+                  {extractionResult.ingredients.length > 0
+                    ? extractionResult.ingredients.join(", ")
+                    : "No ingredients were confidently extracted."}
+                </p>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Confidence: {Math.round(extractionResult.confidence * 100)}% - Review required:{" "}
+                  {extractionResult.needs_review ? "Yes" : "No"}
+                </p>
+                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                  Review the editable ingredient list below, fix anything OCR missed, then scan the
+                  reviewed list.
+                </p>
+              </div>
+              <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
+                {extractionResult.visual_warning && (
+                  <div className="rounded-lg border border-verdict-mushbooh/25 bg-verdict-mushbooh/10 px-2.5 py-1.5 text-[10px] text-foreground/80">
+                    {extractionResult.visual_warning}
+                  </div>
+                )}
+                {extractionResult.warnings.length > 0 ? (
+                  extractionResult.warnings.map((warning) => (
+                    <div
+                      key={warning}
+                      className="rounded-lg border border-hairline bg-surface/80 px-2.5 py-1.5 text-[10px]"
+                    >
+                      {warning}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-lg border border-hairline bg-surface/80 px-2.5 py-1.5 text-[10px]">
+                    Review the editable ingredient box below before scanning.
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
 
-        {extractionError && <ErrorCard message={extractionError} compact />}
-
-        {extractionResult && (
-          <div className="mt-4 grid gap-3 rounded-2xl border border-jade/25 bg-background/45 p-4 md:grid-cols-[1fr_0.9fr]">
+        <label
+          ref={ingredientEditorRef}
+          className="mt-4 block space-y-2 rounded-[1.75rem] border border-hairline bg-background/25 p-4 shadow-soft"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <div className="flex items-center gap-2 text-xs text-jade">
-                <ClipboardCheck className="h-3.5 w-3.5" />
-                Step 2 - Review extracted ingredients
-              </div>
-              <p className="mt-2 text-sm leading-relaxed text-foreground/85">
-                {extractionResult.ingredients.length > 0
-                  ? extractionResult.ingredients.join(", ")
-                  : "No ingredients were confidently extracted."}
-              </p>
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                Confidence: {Math.round(extractionResult.confidence * 100)}% - Review required:{" "}
-                {extractionResult.needs_review ? "Yes" : "No"}
-              </p>
-              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                Review the editable ingredient list below, fix anything OCR missed,
-                then scan the reviewed list.
-              </p>
+              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                Step 2 - Ingredients
+              </span>
+              <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
+                {hasExtractedIngredients
+                  ? `${reviewedIngredientCount} ingredient(s) are loaded from the label photo. Edit this list before scanning if needed.`
+                  : "Type ingredients manually, paste a label list, or import them from a file."}
+              </span>
             </div>
-            <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
-              {extractionResult.visual_warning && (
-                <div className="rounded-lg border border-verdict-mushbooh/25 bg-verdict-mushbooh/10 px-2.5 py-1.5 text-[10px] text-foreground/80">
-                  {extractionResult.visual_warning}
-                </div>
-              )}
-              {extractionResult.warnings.length > 0 ? (
-                extractionResult.warnings.map((warning) => (
-                  <div
-                    key={warning}
-                    className="rounded-lg border border-hairline bg-surface/80 px-2.5 py-1.5 text-[10px]"
-                  >
-                    {warning}
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-lg border border-hairline bg-surface/80 px-2.5 py-1.5 text-[10px]">
-                  Review the editable ingredient box below before scanning.
-                </div>
-              )}
-            </div>
+          </div>
+          <span className="block text-[11px] leading-relaxed text-muted-foreground">
+            Supports Excel .xlsx, Word .docx, CSV, TSV, and TXT. The first {MAX_IMPORTED_FILE_ROWS}{" "}
+            rows/lines are imported for review.
+          </span>
+          <textarea
+            value={ingredientsInput}
+            onChange={(event) => onIngredientsChange(event.target.value)}
+            placeholder="One ingredient per line, or separate with commas"
+            rows={7}
+            className={`w-full resize-none rounded-2xl border bg-background/50 px-4 py-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-muted-foreground focus:border-jade/50 ${
+              hasExtractedIngredients
+                ? "border-jade/35 shadow-[0_0_0_1px_rgba(83,188,131,0.12)]"
+                : "border-hairline"
+            }`}
+          />
+        </label>
+
+        {fileImportMessage && (
+          <div className="mt-3 rounded-xl border border-jade/20 bg-jade/5 p-3 text-xs leading-relaxed text-jade">
+            {fileImportMessage}
           </div>
         )}
-      </div>
 
-      <label
-        ref={ingredientEditorRef}
-        className="mt-4 block space-y-2 rounded-[1.75rem] border border-hairline bg-background/25 p-4 shadow-soft"
-      >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              Step 2 - Ingredients
-            </span>
-            <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
-              {hasExtractedIngredients
-                ? `${reviewedIngredientCount} ingredient(s) are loaded from the label photo. Edit this list before scanning if needed.`
-                : "Type ingredients manually, paste a label list, or import them from a file."}
-            </span>
-          </div>
-        </div>
-        <span className="block text-[11px] leading-relaxed text-muted-foreground">
-          Supports Excel .xlsx, Word .docx, CSV, TSV, and TXT. The first {MAX_IMPORTED_FILE_ROWS}{" "}
-          rows/lines are imported for review.
-        </span>
-        <textarea
-          value={ingredientsInput}
-          onChange={(event) => onIngredientsChange(event.target.value)}
-          placeholder="One ingredient per line, or separate with commas"
-          rows={7}
-          className={`w-full resize-none rounded-2xl border bg-background/50 px-4 py-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-muted-foreground focus:border-jade/50 ${
-            hasExtractedIngredients ? "border-jade/35 shadow-[0_0_0_1px_rgba(83,188,131,0.12)]" : "border-hairline"
-          }`}
+        {fileImportError && <ErrorCard message={fileImportError} compact />}
+
+        {error && <ErrorCard message={error} compact />}
+
+        <PreScanConfidenceSignal
+          confidence={preScanConfidence}
+          ingredientCount={reviewedIngredientCount}
+          isLoading={isLoading}
         />
-      </label>
 
-      {fileImportMessage && (
-        <div className="mt-3 rounded-xl border border-jade/20 bg-jade/5 p-3 text-xs leading-relaxed text-jade">
-          {fileImportMessage}
+        <div className="mt-5 flex justify-center">
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="inline-flex min-w-[240px] items-center justify-center gap-2 rounded-2xl border border-hairline bg-background/60 px-8 py-4 text-base font-semibold transition-all hover:scale-[1.02] hover:bg-background disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[280px]"
+          >
+            {isLoading ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <ArrowUp className="h-5 w-5" />
+            )}
+            {scanButtonText}
+          </button>
         </div>
-      )}
-
-      {fileImportError && <ErrorCard message={fileImportError} compact />}
-
-      {error && <ErrorCard message={error} compact />}
-
-      <PreScanConfidenceSignal
-        confidence={preScanConfidence}
-        ingredientCount={reviewedIngredientCount}
-        isLoading={isLoading}
-      />
-
-      <div className="mt-5 flex justify-center">
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="inline-flex min-w-[240px] items-center justify-center gap-2 rounded-2xl border border-hairline bg-background/60 px-8 py-4 text-base font-semibold transition-all hover:scale-[1.02] hover:bg-background disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[280px]"
-        >
-          {isLoading ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <ArrowUp className="h-5 w-5" />
-          )}
-          {scanButtonText}
-        </button>
-      </div>
-      <p className="mt-2 text-center text-[11px] leading-relaxed text-muted-foreground">
-        Step 3 - Run the scan to see blockers, review items, low-risk ingredients, and confidence
-      </p>
+        <p className="mt-2 text-center text-[11px] leading-relaxed text-muted-foreground">
+          Step 3 - Run the scan to see blockers, review items, low-risk ingredients, and confidence
+        </p>
       </form>
 
       <Dialog open={isCodeScannerOpen} onOpenChange={setIsCodeScannerOpen}>
@@ -2562,7 +1311,6 @@ function TabStrip({
     { id: "blockers" as const, label: "Blockers", count: report.blockers.length },
     { id: "warnings" as const, label: "Warnings", count: report.warnings.length },
     { id: "safe" as const, label: "Low Risk", count: report.safe.length },
-    { id: "history" as const, label: "History", count: report.history?.length ?? 0 },
   ];
 
   return (
@@ -2591,16 +1339,70 @@ function TabStrip({
 
 function SummaryTab({
   report,
+  domain,
+  fallbackMarket,
+  scanDateIso,
   onViewAll,
 }: {
   report: ComplianceReport;
+  domain: ComplianceDomain;
+  fallbackMarket: string;
+  scanDateIso: string;
   onViewAll: (tab: ReportTab) => void;
 }) {
-  const market = report.market ?? "Malaysia";
+  const market = report.market ?? fallbackMarket;
   const readiness = getReadinessCopy(report.overall_status, market);
   const confidence = getReadinessConfidence(report.overall_status, market);
   const checklist = getMarketChecklist(report, market);
   const evidenceDocuments = collectEvidenceDocuments(report, market);
+  const readinessBrief = useMemo(
+    () =>
+      buildReadinessBrief({
+        report,
+        domain,
+        market,
+        scanDateIso,
+      }),
+    [report, domain, market, scanDateIso],
+  );
+  const replacementScenarios = buildReplacementScenarios(report, market);
+  const [activeScenario, setActiveScenario] = useState<string | null>(null);
+  const [issuedCertificate, setIssuedCertificate] = useState<CertificateRecord | null>(null);
+  const [isCertificateDialogOpen, setIsCertificateDialogOpen] = useState(false);
+  const [certificateDownloadError, setCertificateDownloadError] = useState<string | null>(null);
+  const selectedScenario =
+    replacementScenarios.find((scenario) => scenario.ingredient === activeScenario) ?? null;
+  const certificateEligible = isCertificateEligible(readinessBrief);
+
+  useEffect(() => {
+    setIssuedCertificate(certificateEligible ? findCertificateForBrief(readinessBrief) : null);
+  }, [certificateEligible, readinessBrief]);
+
+  const handleDownloadCertificate = async (certificate: CertificateRecord) => {
+    setCertificateDownloadError(null);
+    try {
+      await downloadCertificatePdf(certificate);
+    } catch (_error) {
+      setCertificateDownloadError("Certificate download could not be completed. Please try again.");
+    }
+  };
+
+  const handleIssueCertificate = async ({
+    manufacturerName,
+    batchReference,
+  }: {
+    manufacturerName: string;
+    batchReference: string;
+  }) => {
+    const certificate = issueCertificate({
+      brief: readinessBrief,
+      manufacturerName,
+      batchReference,
+    });
+    setIssuedCertificate(certificate);
+    setIsCertificateDialogOpen(false);
+    await handleDownloadCertificate(certificate);
+  };
   const cards = [
     {
       label: "Ingredients",
@@ -2631,7 +1433,7 @@ function SummaryTab({
         <div className="grid gap-5 p-5 sm:grid-cols-[1.1fr_0.9fr] sm:p-6">
           <div>
             <h2 className="font-display mt-3 text-3xl font-light leading-tight sm:text-4xl">
-              {report.overall_status}
+              <span className="text-gradient-jade">{report.overall_status}</span>
             </h2>
             <div className="mt-3 max-w-sm rounded-full border border-jade/25 bg-jade/5 p-1">
               <div
@@ -2653,6 +1455,97 @@ function SummaryTab({
           </div>
         </div>
       </div>
+
+      <ReadinessBriefCard
+        brief={readinessBrief}
+        scenario={selectedScenario}
+        onDownload={() => downloadReadinessBrief(readinessBrief)}
+      />
+
+      <CertificatePanel
+        eligible={certificateEligible}
+        certificate={issuedCertificate}
+        error={certificateDownloadError}
+        onIssue={() => setIsCertificateDialogOpen(true)}
+        onDownload={() => {
+          if (issuedCertificate) {
+            void handleDownloadCertificate(issuedCertificate);
+          }
+        }}
+      />
+      <CertificateIssueDialog
+        open={isCertificateDialogOpen}
+        brief={readinessBrief}
+        onOpenChange={setIsCertificateDialogOpen}
+        onIssue={handleIssueCertificate}
+      />
+
+      {replacementScenarios.length > 0 && (
+        <div className="rounded-2xl border border-hairline bg-surface p-5">
+          <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+            What-if replacement
+          </div>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            Test safer ingredient options and preview how your readiness decision could improve.
+          </p>
+          <div className="mt-4 space-y-2">
+            {replacementScenarios.map((scenario) => {
+              const isActive = selectedScenario?.ingredient === scenario.ingredient;
+              return (
+                <button
+                  key={scenario.ingredient}
+                  type="button"
+                  onClick={() => setActiveScenario(isActive ? null : scenario.ingredient)}
+                  className={`w-full rounded-xl border px-3 py-3 text-left transition-colors ${
+                    isActive
+                      ? "border-jade/40 bg-jade/10"
+                      : "border-hairline bg-background/35 hover:bg-background/55"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-foreground">{scenario.ingredient}</span>
+                    <span className="rounded-full border border-hairline bg-background/60 px-2.5 py-1 text-[10px] text-muted-foreground">
+                      Quick simulation
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    {scenario.impactSummary}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+          {selectedScenario && (
+            <div className="mt-4 rounded-xl border border-jade/25 bg-jade/5 p-4">
+              <div className="text-xs font-medium uppercase tracking-widest text-jade">
+                Simulation preview
+              </div>
+              <div className="mt-2 text-sm text-foreground">
+                Replace <span className="font-medium">{selectedScenario.ingredient}</span> with:
+              </div>
+              <ul className="mt-2 space-y-1.5 text-xs text-muted-foreground">
+                {selectedScenario.alternatives.map((alternative) => (
+                  <li key={`${selectedScenario.ingredient}-${alternative.name}`}>
+                    <span className="text-foreground">{alternative.name}</span>:{" "}
+                    {alternative.reason}
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+                <div className="rounded-lg border border-hairline bg-background/45 px-3 py-2">
+                  Decision: {selectedScenario.projectedStatus}
+                </div>
+                <div className="rounded-lg border border-hairline bg-background/45 px-3 py-2">
+                  Blockers: {selectedScenario.projectedBlockers}
+                </div>
+                <div className="rounded-lg border border-hairline bg-background/45 px-3 py-2">
+                  Confidence: {selectedScenario.projectedConfidence}%
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-3">
         {cards.map((card) => (
@@ -2708,6 +1601,10 @@ function SummaryTab({
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
             {getMarketProfile(market).warningNote}
           </p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Country expectation: prepare the evidence package listed for {market} before formal
+            review.
+          </p>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             {checklist.map((item) => (
               <div
@@ -2725,11 +1622,283 @@ function SummaryTab({
   );
 }
 
+function ReadinessBriefCard({
+  brief,
+  scenario,
+  onDownload,
+}: {
+  brief: ReadinessBrief;
+  scenario: ReplacementScenario | null;
+  onDownload: () => void;
+}) {
+  return (
+    <div className="rounded-[1.75rem] border border-hairline bg-surface p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+            {brief.title}
+          </div>
+          <h2 className="font-display mt-2 text-2xl font-light leading-tight sm:text-3xl">
+            {brief.productName}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {brief.productDomain} • {brief.selectedCountry}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onDownload}
+          className="inline-flex items-center gap-2 rounded-full border border-hairline bg-background/50 px-4 py-2 text-sm text-foreground transition-colors hover:bg-background"
+        >
+          <Download className="h-4 w-4" />
+          Download brief
+        </button>
+      </div>
+
+      <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
+        <div className="rounded-xl border border-hairline bg-background/35 px-3 py-2.5">
+          <span className="text-xs text-muted-foreground">Decision</span>
+          <div className="mt-1 text-foreground">{brief.readinessDecision}</div>
+        </div>
+        <div className="rounded-xl border border-hairline bg-background/35 px-3 py-2.5">
+          <span className="text-xs text-muted-foreground">Confidence</span>
+          <div className="mt-1 text-foreground">{brief.confidenceScore}%</div>
+        </div>
+        <div className="rounded-xl border border-hairline bg-background/35 px-3 py-2.5">
+          <span className="text-xs text-muted-foreground">Scan date</span>
+          <div className="mt-1 text-foreground">{brief.scanDate}</div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="rounded-xl border border-hairline bg-background/35 p-3">
+          <div className="text-xs uppercase tracking-widest text-muted-foreground">Summary</div>
+          <p className="mt-2 text-sm text-foreground">{brief.blockerSummary}</p>
+          <p className="mt-1 text-sm text-foreground">{brief.reviewSummary}</p>
+          {scenario && (
+            <p className="mt-2 text-xs text-jade">
+              Simulation active: projected decision {scenario.projectedStatus} with{" "}
+              {scenario.projectedConfidence}% confidence.
+            </p>
+          )}
+        </div>
+        <div className="rounded-xl border border-hairline bg-background/35 p-3">
+          <div className="text-xs uppercase tracking-widest text-muted-foreground">
+            Recommended next step
+          </div>
+          <p className="mt-2 text-sm text-foreground">{brief.recommendedNextStep}</p>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-xl border border-hairline bg-background/35 p-3">
+        <div className="text-xs uppercase tracking-widest text-muted-foreground">
+          Required evidence and documents
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {brief.requiredEvidence.slice(0, 6).map((item) => (
+            <span
+              key={`brief-${item.name}`}
+              className="rounded-full border border-hairline bg-background/55 px-2.5 py-1 text-[11px] text-foreground/85"
+            >
+              {item.name}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <p className="mt-4 text-xs leading-relaxed text-muted-foreground">{brief.disclaimer}</p>
+    </div>
+  );
+}
+
+function CertificatePanel({
+  eligible,
+  certificate,
+  error,
+  onIssue,
+  onDownload,
+}: {
+  eligible: boolean;
+  certificate: CertificateRecord | null;
+  error: string | null;
+  onIssue: () => void;
+  onDownload: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-hairline bg-surface p-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="max-w-xl">
+          <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-widest text-jade">
+            <BadgeCheck className="h-4 w-4" />
+            Export Readiness Certificate
+          </div>
+          {certificate ? (
+            <>
+              <h3 className="font-display mt-2 text-xl">Certificate issued</h3>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                Reference {certificate.id}. This assessment certificate is ready to download and
+                verify on this device.
+              </p>
+            </>
+          ) : eligible ? (
+            <>
+              <h3 className="font-display mt-2 text-xl">Ready for issuance</h3>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                This product reached Low Risk with no open blocker or review item. Add the
+                manufacturer name to issue its export preparation certificate.
+              </p>
+            </>
+          ) : (
+            <>
+              <h3 className="font-display mt-2 text-xl">Certificate not available yet</h3>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                An Export Readiness Certificate can be issued only after the product reaches Low
+                Risk. Use the readiness brief to resolve the open findings first.
+              </p>
+            </>
+          )}
+          {error && <p className="mt-2 text-xs text-verdict-haram">{error}</p>}
+        </div>
+
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {certificate ? (
+            <>
+              <button
+                type="button"
+                onClick={onDownload}
+                className="inline-flex items-center gap-2 rounded-xl bg-jade px-4 py-2.5 text-sm font-medium text-background transition-colors hover:bg-jade-glow"
+              >
+                <Download className="h-4 w-4" />
+                Download certificate
+              </button>
+              <a
+                href={getCertificateVerificationUrl(certificate.id)}
+                className="inline-flex items-center rounded-xl border border-hairline bg-background/45 px-4 py-2.5 text-sm transition-colors hover:bg-background"
+              >
+                Verify record
+              </a>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={onIssue}
+              disabled={!eligible}
+              className="inline-flex items-center gap-2 rounded-xl bg-jade px-4 py-2.5 text-sm font-medium text-background transition-colors hover:bg-jade-glow disabled:cursor-not-allowed disabled:bg-background/60 disabled:text-muted-foreground"
+            >
+              <BadgeCheck className="h-4 w-4" />
+              Issue certificate
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CertificateIssueDialog({
+  open,
+  brief,
+  onOpenChange,
+  onIssue,
+}: {
+  open: boolean;
+  brief: ReadinessBrief;
+  onOpenChange: (open: boolean) => void;
+  onIssue: (details: { manufacturerName: string; batchReference: string }) => Promise<void>;
+}) {
+  const [manufacturerName, setManufacturerName] = useState("");
+  const [batchReference, setBatchReference] = useState("");
+  const [isIssuing, setIsIssuing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setManufacturerName("");
+      setBatchReference("");
+      setError(null);
+      setIsIssuing(false);
+    }
+  }, [open]);
+
+  const submitCertificate = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!manufacturerName.trim()) {
+      setError("Manufacturer name is required.");
+      return;
+    }
+
+    setError(null);
+    setIsIssuing(true);
+    try {
+      await onIssue({ manufacturerName, batchReference });
+    } catch (issueError) {
+      setError(
+        issueError instanceof Error ? issueError.message : "Certificate could not be issued.",
+      );
+      setIsIssuing(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md rounded-3xl border border-hairline bg-surface p-0 sm:rounded-3xl">
+        <DialogHeader className="px-5 pt-5">
+          <DialogTitle>Issue Export Readiness Certificate</DialogTitle>
+          <DialogDescription>
+            Create a certificate for {brief.productName} after its Low Risk readiness assessment.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submitCertificate} className="space-y-4 px-5 pb-5">
+          <label className="block space-y-2">
+            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              Manufacturer name
+            </span>
+            <input
+              value={manufacturerName}
+              onChange={(event) => setManufacturerName(event.target.value)}
+              placeholder="Example Foods Ltd."
+              className="w-full rounded-xl border border-hairline bg-background/50 px-3 py-3 text-sm outline-none focus:border-jade/50"
+            />
+          </label>
+          <label className="block space-y-2">
+            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              Batch or internal reference (optional)
+            </span>
+            <input
+              value={batchReference}
+              onChange={(event) => setBatchReference(event.target.value)}
+              placeholder="BATCH-2026-05"
+              className="w-full rounded-xl border border-hairline bg-background/50 px-3 py-3 text-sm outline-none focus:border-jade/50"
+            />
+          </label>
+          {error && <p className="text-xs text-verdict-haram">{error}</p>}
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            This document supports preparation for formal review. It is not a final halal
+            certification or legal export approval.
+          </p>
+          <button
+            type="submit"
+            disabled={isIssuing}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-jade px-4 py-3 text-sm font-medium text-background transition-colors hover:bg-jade-glow disabled:opacity-60"
+          >
+            {isIssuing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <BadgeCheck className="h-4 w-4" />
+            )}
+            Issue and download PDF
+          </button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function EvidencePackPanel({
   documents,
   market,
 }: {
-  documents: EvidenceDocumentItem[];
+  documents: EvidencePackItem[];
   market: string;
 }) {
   const previewDocuments = documents.slice(0, 6);
@@ -2748,29 +1917,41 @@ function EvidencePackPanel({
         </span>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-        These are the documents the manufacturer should prepare next based on the current
-        ingredient findings and market expectations.
+        These are the documents the manufacturer should prepare next based on the current ingredient
+        findings and market expectations.
       </p>
       <div className="mt-4 space-y-2">
-        {previewDocuments.map((document) => (
-          <div
-            key={`${market}-${document.name}`}
-            className="rounded-xl border border-hairline bg-background/35 px-3 py-3"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-foreground">{document.name}</span>
-              <span className="rounded-full border border-hairline bg-background/45 px-2.5 py-1 text-[10px] text-muted-foreground">
-                {document.status}
-              </span>
-            </div>
-            {document.relatedIngredients.length > 0 && (
+        {previewDocuments.map((document) => {
+          const statusTone =
+            document.status === "Required now"
+              ? "border-verdict-haram/30 bg-verdict-haram/10 text-verdict-haram"
+              : document.status === "Review soon"
+                ? "border-verdict-mushbooh/30 bg-verdict-mushbooh/10 text-verdict-mushbooh"
+                : "border-jade/25 bg-jade/10 text-jade";
+
+          return (
+            <div
+              key={`${market}-${document.name}`}
+              className="rounded-xl border border-hairline bg-background/35 px-3 py-3"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-foreground">{document.name}</span>
+                <span className={`rounded-full border px-2.5 py-1 text-[10px] ${statusTone}`}>
+                  {document.status}
+                </span>
+              </div>
+              {document.relatedIngredients.length > 0 && (
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  Triggered by: {document.relatedIngredients.slice(0, 3).join(", ")}
+                  {document.relatedIngredients.length > 3 ? ", more" : ""}
+                </p>
+              )}
               <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                Triggered by: {document.relatedIngredients.slice(0, 3).join(", ")}
-                {document.relatedIngredients.length > 3 ? ", more" : ""}
+                {document.countryNote}
               </p>
-            )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -3020,131 +2201,6 @@ function InfoPanel({
   );
 }
 
-function GuestWorkspaceCard({
-  guestEmail,
-  historyCount,
-  onSignOut,
-}: {
-  guestEmail: string | null;
-  historyCount: number;
-  onSignOut: () => void;
-}) {
-  return (
-    <div className="mt-8 rounded-2xl border border-hairline bg-surface p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-            Signed in as
-          </div>
-          <div className="mt-1 text-sm text-foreground">{guestEmail ?? "Demo visitor"}</div>
-        </div>
-        {guestEmail && (
-          <button
-            type="button"
-            onClick={onSignOut}
-            className="rounded-full border border-hairline px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
-          >
-            Sign out
-          </button>
-        )}
-      </div>
-      <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-        {guestEmail
-          ? `This guest has ${historyCount} saved product scan${historyCount === 1 ? "" : "s"} on this device.`
-          : "Sign in with a mock email to keep saved product scan history on this device."}
-      </p>
-    </div>
-  );
-}
-
-function HistoryPanel({ history }: { history: ReportHistoryItem[] }) {
-  return (
-    <div className="mt-8">
-      <div className="px-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-        Returned history
-      </div>
-      <div className="mt-2 space-y-2">
-        {history.length === 0 ? (
-          <p className="rounded-xl border border-hairline bg-surface p-3 text-[11px] leading-relaxed text-muted-foreground">
-            Run a scan to see previous submissions for the same product.
-          </p>
-        ) : (
-          history.slice(0, 4).map((item) => <HistoryMiniCard key={item.id} item={item} />)
-        )}
-      </div>
-    </div>
-  );
-}
-
-function HistoryTab({ history }: { history: ReportHistoryItem[] }) {
-  if (history.length === 0) {
-    return (
-      <div className="rounded-2xl border border-hairline bg-surface p-6 text-sm text-muted-foreground">
-        No previous submissions were returned for this product yet.
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {history.map((item) => (
-        <HistoryFullCard key={item.id} item={item} />
-      ))}
-    </div>
-  );
-}
-
-function HistoryMiniCard({ item }: { item: ReportHistoryItem }) {
-  const latestReport = item.reports?.[0]?.result;
-  const historyLabel = latestReport?.domain
-    ? `Previous ${getDomainLabel(latestReport.domain)} scan`
-    : "Previous saved scan";
-  const historyMarket = latestReport?.market;
-
-  return (
-    <div className="rounded-xl border border-hairline bg-surface p-3">
-      <div className="flex items-center gap-2 text-xs text-foreground/80">
-        <History className="h-3.5 w-3.5 text-jade" />
-        {historyLabel}
-      </div>
-      <div className="mt-1 text-[11px] text-muted-foreground">
-        {latestReport?.overall_status ?? "Saved scan"}
-        {historyMarket ? ` • ${historyMarket}` : ""}
-        {" • "}
-        {formatDate(item.created_at)}
-      </div>
-    </div>
-  );
-}
-
-function HistoryFullCard({ item }: { item: ReportHistoryItem }) {
-  const latestReport = item.reports?.[0]?.result;
-  const historyLabel = latestReport?.domain
-    ? `Previous ${getDomainLabel(latestReport.domain)} scan`
-    : "Previous submission";
-  const historyMarket = latestReport?.market;
-
-  return (
-    <div className="rounded-2xl border border-hairline bg-surface p-5">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="text-sm font-medium">{historyLabel}</div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            {historyMarket ? `${historyMarket} • ` : ""}
-            Submission ID: {item.id}
-          </div>
-        </div>
-        <div className="text-xs text-muted-foreground">{formatDate(item.created_at)}</div>
-      </div>
-      {latestReport && (
-        <p className="mt-3 text-sm leading-relaxed text-foreground/80">
-          {latestReport.summary.human_readable}
-        </p>
-      )}
-    </div>
-  );
-}
-
 function ErrorCard({ message, compact = false }: { message: string; compact?: boolean }) {
   return (
     <div
@@ -3169,7 +2225,7 @@ function LoadingCard() {
         <div>
           <div className="text-sm font-medium">Running product-level analysis</div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Checking ingredients, evidence needs, saved reports, and previous scan history
+            Checking ingredients, evidence needs, and market readiness
           </p>
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-background">
             <div className="h-full w-3/4 animate-pulse rounded-full bg-jade" />
@@ -3237,15 +2293,76 @@ function MiniScanBar({
   );
 }
 
-function formatDate(value: string): string {
-  const date = new Date(value);
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
 
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
+function downloadReadinessBrief(brief: ReadinessBrief) {
+  if (typeof window === "undefined") return;
 
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  const renderedEvidence = brief.requiredEvidence
+    .map((item) => {
+      const ingredients =
+        item.relatedIngredients.length > 0
+          ? item.relatedIngredients.join(", ")
+          : "General country requirement";
+      return `<tr>
+        <td>${escapeHtml(item.name)}</td>
+        <td>${escapeHtml(item.status)}</td>
+        <td>${escapeHtml(ingredients)}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const printableHtml = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(brief.title)}</title>
+    <style>
+      body { font-family: Inter, Segoe UI, Arial, sans-serif; margin: 28px; color: #0f172a; }
+      h1 { margin: 0 0 4px; font-size: 22px; }
+      h2 { margin: 22px 0 8px; font-size: 15px; }
+      p { margin: 4px 0; line-height: 1.4; }
+      .muted { color: #475569; font-size: 12px; }
+      .chip { display: inline-block; margin-right: 10px; font-size: 12px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+      th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; vertical-align: top; }
+      th { background: #f8fafc; }
+      .footer { margin-top: 18px; font-size: 11px; color: #64748b; }
+    </style>
+  </head>
+  <body>
+    <h1>${escapeHtml(brief.title)}</h1>
+    <p><strong>${escapeHtml(brief.productName)}</strong></p>
+    <p class="muted">${escapeHtml(brief.productDomain)} • ${escapeHtml(brief.selectedCountry)} • ${escapeHtml(brief.scanDate)}</p>
+    <p class="chip"><strong>Decision:</strong> ${escapeHtml(brief.readinessDecision)}</p>
+    <p class="chip"><strong>Confidence:</strong> ${escapeHtml(String(brief.confidenceScore))}%</p>
+    <h2>Summary</h2>
+    <p>${escapeHtml(brief.blockerSummary)}</p>
+    <p>${escapeHtml(brief.reviewSummary)}</p>
+    <h2>Required evidence and documents</h2>
+    <table>
+      <thead>
+        <tr><th>Document</th><th>Priority</th><th>Triggered by</th></tr>
+      </thead>
+      <tbody>${renderedEvidence}</tbody>
+    </table>
+    <h2>Recommended next step</h2>
+    <p>${escapeHtml(brief.recommendedNextStep)}</p>
+    <p class="footer">${escapeHtml(brief.disclaimer)}</p>
+  </body>
+</html>`;
+
+  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1080,height=760");
+  if (!printWindow) return;
+  printWindow.document.write(printableHtml);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
 }

@@ -1,5 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Building2, ClipboardCheck, Globe2, Layers, Lock } from "lucide-react";
+import { createFileRoute } from "@tanstack/react-router";
+import { Building2, ClipboardCheck, Layers, Lock } from "lucide-react";
 import { Nav } from "@/components/site/Nav";
 import { Footer } from "@/components/site/Footer";
 
@@ -50,13 +50,6 @@ const ENTERPRISE_FEATURES = [
   },
 ];
 
-const REGIONS = [
-  { label: "Malaysia", value: 92 },
-  { label: "UAE", value: 82 },
-  { label: "United Kingdom", value: 68 },
-  { label: "European Union", value: 58 },
-];
-
 const DOMAINS = ["Food", "Cosmetics", "Export", "Pharma"];
 
 function EnterprisePage() {
@@ -78,42 +71,37 @@ function EnterprisePage() {
           certification review. The platform turns ingredients, markets, domains, and evidence
           requirements into a structured readiness report.
         </p>
-
-        <div className="mt-10 flex flex-wrap gap-3">
-          <a
-            href="#contact"
-            className="group inline-flex items-center gap-2 rounded-full border border-hairline bg-background/60 px-5 py-3 text-sm font-medium transition-colors hover:bg-background"
-          >
-            Talk to our team
-            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-          </a>
-          <Link
-            to="/assistant"
-            className="inline-flex items-center gap-2 rounded-full border border-jade/25 bg-jade/10 px-5 py-3 text-sm font-medium text-jade transition-colors hover:bg-jade/15"
-          >
-            Open the assistant
-          </Link>
-        </div>
-
         <section className="mt-16 grid gap-6 lg:grid-cols-[1fr_0.9fr]">
           <div className="rounded-[2rem] border border-hairline bg-surface p-6 shadow-elegant">
-            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-jade">
-              <Globe2 className="h-4 w-4" />
-              Region visibility
+            <div className="text-xs font-medium uppercase tracking-widest text-jade">
+              Team workflow
             </div>
             <div className="mt-6 space-y-4">
-              {REGIONS.map((region) => (
-                <div key={region.label}>
-                  <div className="flex items-center justify-between text-sm">
-                    <span>{region.label}</span>
-                    <span className="text-jade">{region.value}% modeled</span>
-                  </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-background">
-                    <div
-                      className="h-full rounded-full bg-jade"
-                      style={{ width: `${region.value}%` }}
-                    />
-                  </div>
+              {[
+                {
+                  title: "Start from product formulas",
+                  description:
+                    "Product and QA teams submit ingredients, target country, and product domain in one review flow.",
+                },
+                {
+                  title: "Collect the right evidence next",
+                  description:
+                    "Supplier and compliance teams get a clear checklist of proof to gather before formal submission.",
+                },
+                {
+                  title: "Track progress between scans",
+                  description:
+                    "Every rescan shows what improved and what still needs action, so teams move faster with less confusion.",
+                },
+              ].map((item) => (
+                <div
+                  key={item.title}
+                  className="rounded-2xl border border-hairline bg-background/40 p-4"
+                >
+                  <div className="text-sm text-foreground">{item.title}</div>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    {item.description}
+                  </p>
                 </div>
               ))}
             </div>
@@ -175,25 +163,6 @@ function EnterprisePage() {
               </p>
             </div>
           ))}
-        </div>
-
-        <div
-          id="contact"
-          className="mt-16 rounded-2xl border border-hairline bg-surface p-8 text-center sm:mt-20 sm:rounded-3xl sm:p-10"
-        >
-          <h2 className="font-display text-2xl sm:text-3xl">
-            Build a cleaner certification workflow
-          </h2>
-          <p className="mt-3 text-muted-foreground">
-            Start with the assistant, then add your supplier evidence and market-specific
-            requirements.
-          </p>
-          <a
-            href="mailto:partners@halalintelligence.app"
-            className="mt-6 inline-flex items-center gap-2 rounded-full border border-hairline bg-background/60 px-5 py-3 text-sm font-medium transition-colors hover:bg-background"
-          >
-            partners@halalintelligence.app
-          </a>
         </div>
       </main>
       <Footer />

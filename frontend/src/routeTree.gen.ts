@@ -11,9 +11,12 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TransparencyRouteImport } from './routes/transparency'
 import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as ScanRouteImport } from './routes/scan'
+import { Route as MethodologyRouteImport } from './routes/methodology'
 import { Route as EnterpriseRouteImport } from './routes/enterprise'
 import { Route as AssistantRouteImport } from './routes/assistant'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as CertificateCertificateIdRouteImport } from './routes/certificate.$certificateId'
 
 const TransparencyRoute = TransparencyRouteImport.update({
   id: '/transparency',
@@ -23,6 +26,16 @@ const TransparencyRoute = TransparencyRouteImport.update({
 const SignInRoute = SignInRouteImport.update({
   id: '/sign-in',
   path: '/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScanRoute = ScanRouteImport.update({
+  id: '/scan',
+  path: '/scan',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MethodologyRoute = MethodologyRouteImport.update({
+  id: '/methodology',
+  path: '/methodology',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EnterpriseRoute = EnterpriseRouteImport.update({
@@ -40,49 +53,86 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CertificateCertificateIdRoute =
+  CertificateCertificateIdRouteImport.update({
+    id: '/certificate/$certificateId',
+    path: '/certificate/$certificateId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/assistant': typeof AssistantRoute
   '/enterprise': typeof EnterpriseRoute
+  '/methodology': typeof MethodologyRoute
+  '/scan': typeof ScanRoute
   '/sign-in': typeof SignInRoute
   '/transparency': typeof TransparencyRoute
+  '/certificate/$certificateId': typeof CertificateCertificateIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/assistant': typeof AssistantRoute
   '/enterprise': typeof EnterpriseRoute
+  '/methodology': typeof MethodologyRoute
+  '/scan': typeof ScanRoute
   '/sign-in': typeof SignInRoute
   '/transparency': typeof TransparencyRoute
+  '/certificate/$certificateId': typeof CertificateCertificateIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/assistant': typeof AssistantRoute
   '/enterprise': typeof EnterpriseRoute
+  '/methodology': typeof MethodologyRoute
+  '/scan': typeof ScanRoute
   '/sign-in': typeof SignInRoute
   '/transparency': typeof TransparencyRoute
+  '/certificate/$certificateId': typeof CertificateCertificateIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/assistant' | '/enterprise' | '/sign-in' | '/transparency'
+  fullPaths:
+    | '/'
+    | '/assistant'
+    | '/enterprise'
+    | '/methodology'
+    | '/scan'
+    | '/sign-in'
+    | '/transparency'
+    | '/certificate/$certificateId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/assistant' | '/enterprise' | '/sign-in' | '/transparency'
+  to:
+    | '/'
+    | '/assistant'
+    | '/enterprise'
+    | '/methodology'
+    | '/scan'
+    | '/sign-in'
+    | '/transparency'
+    | '/certificate/$certificateId'
   id:
     | '__root__'
     | '/'
     | '/assistant'
     | '/enterprise'
+    | '/methodology'
+    | '/scan'
     | '/sign-in'
     | '/transparency'
+    | '/certificate/$certificateId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AssistantRoute: typeof AssistantRoute
   EnterpriseRoute: typeof EnterpriseRoute
+  MethodologyRoute: typeof MethodologyRoute
+  ScanRoute: typeof ScanRoute
   SignInRoute: typeof SignInRoute
   TransparencyRoute: typeof TransparencyRoute
+  CertificateCertificateIdRoute: typeof CertificateCertificateIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +149,20 @@ declare module '@tanstack/react-router' {
       path: '/sign-in'
       fullPath: '/sign-in'
       preLoaderRoute: typeof SignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scan': {
+      id: '/scan'
+      path: '/scan'
+      fullPath: '/scan'
+      preLoaderRoute: typeof ScanRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/methodology': {
+      id: '/methodology'
+      path: '/methodology'
+      fullPath: '/methodology'
+      preLoaderRoute: typeof MethodologyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/enterprise': {
@@ -122,6 +186,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/certificate/$certificateId': {
+      id: '/certificate/$certificateId'
+      path: '/certificate/$certificateId'
+      fullPath: '/certificate/$certificateId'
+      preLoaderRoute: typeof CertificateCertificateIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -129,8 +200,11 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AssistantRoute: AssistantRoute,
   EnterpriseRoute: EnterpriseRoute,
+  MethodologyRoute: MethodologyRoute,
+  ScanRoute: ScanRoute,
   SignInRoute: SignInRoute,
   TransparencyRoute: TransparencyRoute,
+  CertificateCertificateIdRoute: CertificateCertificateIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
