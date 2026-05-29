@@ -2,28 +2,25 @@ import type { BarcodeLookupResult, ComplianceDomain, OverallStatus } from "@/lib
 
 export const SAMPLE_SCANS = [
   {
+    productName: "Low Risk Oat Biscuit",
+    ingredients: "Oats\nWheat Flour\nPalm Oil\nSugar\nSoy Lecithin",
+    market: "Malaysia",
+    domain: "food" as ComplianceDomain,
+    readiness: "Low Risk" as OverallStatus,
+  },
+  {
     productName: "Chocolate Wafer Biscuit",
     ingredients: "Palm Oil\nGelatin\nVanilla Flavor",
     market: "Malaysia",
     domain: "food" as ComplianceDomain,
+    readiness: "Needs Review" as OverallStatus,
   },
   {
     productName: "Brightening Face Cream",
     ingredients: "Collagen\nGlycerin\nFragrance\nCarmine",
     market: "Malaysia",
     domain: "cosmetics" as ComplianceDomain,
-  },
-  {
-    productName: "Export Compliance Demo",
-    ingredients: "Palm Oil\nGelatin\nNatural Flavor\nMixed Emulsifier\nChocolate Flavor",
-    market: "Thailand",
-    domain: "export_compliance" as ComplianceDomain,
-  },
-  {
-    productName: "Softgel Supplement",
-    ingredients: "Gelatin\nGlycerin\nMagnesium Stearate",
-    market: "Malaysia",
-    domain: "pharmaceuticals" as ComplianceDomain,
+    readiness: "Not Ready" as OverallStatus,
   },
 ];
 
@@ -107,7 +104,7 @@ export const MARKET_PROFILES: Record<string, MarketProfile> = {
     },
     defaultDocuments: ["Halal certificate", "Supplier declaration", "Ingredient origin proof"],
     strictBlockerIngredients: [],
-    strictReviewIngredients: ["flavor", "emulsifier"],
+    strictReviewIngredients: [],
   },
   Thailand: {
     label: "Thailand",
@@ -124,8 +121,8 @@ export const MARKET_PROFILES: Record<string, MarketProfile> = {
       "Export-ready evidence pack",
       "Batch traceability",
     ],
-    strictBlockerIngredients: ["gelatin", "collagen"],
-    strictReviewIngredients: ["flavor", "glycerin"],
+    strictBlockerIngredients: [],
+    strictReviewIngredients: [],
   },
   "United Kingdom": {
     label: "United Kingdom",
@@ -138,7 +135,7 @@ export const MARKET_PROFILES: Record<string, MarketProfile> = {
     },
     defaultDocuments: ["Ingredient origin proof", "Certifier-ready evidence pack"],
     strictBlockerIngredients: [],
-    strictReviewIngredients: ["collagen", "carmine", "gelatin"],
+    strictReviewIngredients: [],
   },
   "European Union": {
     label: "European Union",
@@ -151,7 +148,7 @@ export const MARKET_PROFILES: Record<string, MarketProfile> = {
     },
     defaultDocuments: ["Ingredient source proof", "Traceability record", "Export pack readiness"],
     strictBlockerIngredients: [],
-    strictReviewIngredients: ["gelatin", "collagen", "flavor"],
+    strictReviewIngredients: [],
   },
 };
 
@@ -379,6 +376,10 @@ export const DOMAIN_INGREDIENT_RULES: DomainIngredientRule[] = [
       "whole milk powder",
       "soy lecithin",
       "sunflower lecithin",
+      "oat",
+      "oats",
+      "rolled oats",
+      "oat flour",
     ],
     risk: "Low",
     reasoning:

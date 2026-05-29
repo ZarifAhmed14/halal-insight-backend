@@ -5,7 +5,7 @@ export function Footer() {
   return (
     <footer className="border-t border-hairline">
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16">
-        <div className="grid gap-10 sm:gap-12 sm:grid-cols-2 md:grid-cols-[1.5fr_1fr_1fr_1fr]">
+        <div className="grid gap-10 sm:gap-12 sm:grid-cols-2 md:grid-cols-[minmax(0,2fr)_minmax(160px,0.8fr)_minmax(160px,0.8fr)] lg:grid-cols-[minmax(0,2.4fr)_minmax(180px,0.8fr)_minmax(180px,0.8fr)]">
           <div>
             <Logo />
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-muted-foreground">
@@ -23,22 +23,13 @@ export function Footer() {
               links: [
                 { to: "/assistant", label: "Assistant" },
                 { to: "/methodology", label: "Methodology" },
-                { to: "/enterprise", label: "Enterprise" },
               ],
             },
             {
               title: "Knowledge",
               links: [
                 { to: "/methodology", label: "Methodology" },
-                { to: "/methodology", label: "Boundaries", hash: "boundaries" },
-              ],
-            },
-            {
-              title: "Company",
-              links: [
-                { to: "/enterprise", label: "About" },
-                { to: "/methodology", label: "Assessment boundary", hash: "boundaries" },
-                { to: "/enterprise", label: "Workflow" },
+                { to: "/how-ai-works", label: "How AI works" },
               ],
             },
           ].map((col) => (
@@ -49,11 +40,7 @@ export function Footer() {
               <ul className="mt-4 space-y-3">
                 {col.links.map((l) => (
                   <li key={l.label}>
-                    <Link
-                      to={l.to}
-                      hash={("hash" in l ? l.hash : undefined) as string | undefined}
-                      className="text-sm text-foreground/80 hover:text-foreground"
-                    >
+                    <Link to={l.to} className="text-sm text-foreground/80 hover:text-foreground">
                       {l.label}
                     </Link>
                   </li>

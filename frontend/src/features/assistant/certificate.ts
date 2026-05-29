@@ -185,7 +185,7 @@ export async function downloadCertificatePdf(record: CertificateRecord): Promise
     ["Product", record.productName],
     ["Product domain", record.productDomain],
     ["Target country", record.country],
-    ["Confidence score", `${record.confidenceScore}%`],
+    ["Confidence", `${record.confidenceScore}%`],
     ["Issue date", formatIssueDate(record.issuedAt)],
     ["Batch/reference", record.batchReference ?? "Not provided"],
   ];

@@ -1,5 +1,14 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
-import { ArrowUpRight, BookOpen, ClipboardCheck, FileSearch, ShieldCheck } from "lucide-react";
+import { createFileRoute } from "@tanstack/react-router";
+import {
+  ArrowUpRight,
+  BookOpen,
+  Building2,
+  ClipboardCheck,
+  FileSearch,
+  Layers,
+  Lock,
+  ShieldCheck,
+} from "lucide-react";
 
 import { Footer } from "@/components/site/Footer";
 import { Nav } from "@/components/site/Nav";
@@ -82,6 +91,30 @@ const SOURCE_REVIEW = [
   "Gelatin, collagen, capsule shells, rennet, and enzymes",
   "Glycerin, stearic acid, mono- and diglycerides",
   "Carmine, shellac, natural flavors, and alcohol-carried flavorings",
+] as const;
+
+const WORKSPACE_FEATURES = [
+  {
+    icon: ClipboardCheck,
+    title: "Readiness checks",
+    description: "Product, QA, and export teams use one review flow for ingredients and evidence.",
+  },
+  {
+    icon: Layers,
+    title: "Domain coverage",
+    description:
+      "Food is strongest today, with cosmetics and pharma prepared through the same flow.",
+  },
+  {
+    icon: Lock,
+    title: "Private records",
+    description: "Reports and supplier evidence can be kept together for later review.",
+  },
+  {
+    icon: Building2,
+    title: "Progress history",
+    description: "Rescans show what changed, what improved, and what still needs action.",
+  },
 ] as const;
 
 function MethodologyPage() {
@@ -191,7 +224,52 @@ function MethodologyPage() {
           </div>
         </section>
 
-        <section id="boundaries" className="mt-14 sm:mt-20">
+        <section className="mt-14 sm:mt-20">
+          <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+            <div>
+              <div className="text-xs uppercase tracking-widest text-jade">
+                Manufacturer workflow
+              </div>
+              <h2 className="font-display mt-3 text-3xl text-foreground">
+                How teams use the readiness report
+              </h2>
+              <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+                The same method supports product, supplier, QA, and export preparation. A team
+                starts with ingredients, sees what needs proof, then gathers the documents needed
+                before formal review.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-hairline bg-surface p-5 sm:p-6">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {WORKSPACE_FEATURES.map((feature) => (
+                  <div
+                    key={feature.title}
+                    className="rounded-xl border border-hairline bg-background/35 p-4"
+                  >
+                    <feature.icon className="h-4 w-4 text-jade" strokeWidth={1.5} />
+                    <h3 className="mt-3 text-sm font-medium text-foreground">{feature.title}</h3>
+                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                      {feature.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-14 sm:mt-20">
+          <div className="mb-6 max-w-2xl">
+            <div className="text-xs uppercase tracking-widest text-jade">Ingredient coverage</div>
+            <h2 className="font-display mt-3 text-3xl text-foreground">
+              What the system looks for
+            </h2>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              The review separates direct blockers from ingredients where the source must be
+              confirmed. This keeps the report useful without pretending every uncertain ingredient
+              has a final answer.
+            </p>
+          </div>
           <div className="grid gap-4 lg:grid-cols-2">
             <IngredientGroup title="Clear blockers" items={CLEAR_BLOCKERS} />
             <IngredientGroup title="Source verification required" items={SOURCE_REVIEW} />
@@ -202,22 +280,6 @@ function MethodologyPage() {
             a preparation document for products assessed as Low Risk.
           </div>
         </section>
-
-        <div className="mt-14 flex flex-wrap items-center gap-3 sm:mt-20">
-          <Link
-            to="/assistant"
-            className="inline-flex items-center gap-2 rounded-full bg-jade px-5 py-3 text-sm font-medium text-background transition-colors hover:bg-jade-glow"
-          >
-            Start a readiness scan
-            <ArrowUpRight className="h-4 w-4" />
-          </Link>
-          <Link
-            to="/enterprise"
-            className="inline-flex items-center rounded-full border border-hairline bg-surface px-5 py-3 text-sm text-foreground transition-colors hover:bg-surface-elevated"
-          >
-            View manufacturer workflow
-          </Link>
-        </div>
       </main>
       <Footer />
     </div>

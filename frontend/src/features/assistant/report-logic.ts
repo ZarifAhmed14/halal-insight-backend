@@ -136,9 +136,9 @@ export function applyDomainKnowledgeToReport(
     applyDomainRuleToEntry(entry, domain),
   );
 
-  const blockers = nextEntries.filter((entry) => getRiskPriority(entry.risk) >= 3);
-  const warnings = nextEntries.filter((entry) => getRiskPriority(entry.risk) === 2);
-  const safe = nextEntries.filter((entry) => getRiskPriority(entry.risk) === 1);
+  const blockers = nextEntries.filter((entry) => getRiskPriority(entry.risk) >= 4);
+  const warnings = nextEntries.filter((entry) => getRiskPriority(entry.risk) === 3);
+  const safe = nextEntries.filter((entry) => getRiskPriority(entry.risk) <= 2);
   const overallStatus: OverallStatus =
     blockers.length > 0 ? "Not Ready" : warnings.length > 0 ? "Needs Review" : "Low Risk";
 
@@ -175,6 +175,18 @@ export function buildInternalProductName({
 
   const ingredientCount = ingredients.length || 1;
   return `${getDomainLabel(domain)} scan with ${ingredientCount} ingredient${ingredientCount === 1 ? "" : "s"} for ${getMarketLabel(market)}`;
+}
+
+function getDisplayProductName(productName: string): string {
+  const trimmedProductName = productName.trim();
+  const internalFallbackPattern =
+    /^(Food|Cosmetics|Pharmaceuticals|Export Compliance) scan with \d+ ingredients? for .+$/i;
+
+  if (!trimmedProductName || internalFallbackPattern.test(trimmedProductName)) {
+    return "Not provided";
+  }
+
+  return trimmedProductName;
 }
 
 function matchesMarketIngredient(entry: ComplianceEntry, matchers: string[]): boolean {
@@ -417,7 +429,7 @@ export function buildReadinessBrief({
   return {
     title: "Pre-Certification Readiness Brief",
     assessmentSignature,
-    productName: report.product_name,
+    productName: getDisplayProductName(report.product_name),
     selectedCountry: getMarketLabel(normalizedMarket),
     productDomain: getDomainLabel(report.domain ?? domain),
     readinessDecision: report.overall_status,

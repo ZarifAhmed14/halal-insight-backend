@@ -33,6 +33,7 @@ import {
   type ComplianceEntry,
   type ComplianceReport,
   type ExtractIngredientsResult,
+  type OverallStatus,
 } from "@/lib/halaliq-api";
 import {
   Dialog,
@@ -106,6 +107,12 @@ export const Route = createFileRoute("/assistant")({
 });
 
 type ReportTab = "summary" | "blockers" | "warnings" | "safe";
+
+const sampleReadinessTone: Record<OverallStatus, string> = {
+  "Not Ready": "border-verdict-haram/30 bg-verdict-haram/10 text-verdict-haram",
+  "Needs Review": "border-verdict-mushbooh/30 bg-verdict-mushbooh/10 text-verdict-mushbooh",
+  "Low Risk": "border-verdict-halal/30 bg-verdict-halal/10 text-verdict-halal",
+};
 
 function AssistantPage() {
   const [submitted, setSubmitted] = useState(false);
@@ -346,11 +353,11 @@ function AssistantPage() {
   };
 
   const loadSample = (sample: (typeof SAMPLE_SCANS)[number]) => {
+    handleImageSelected(null);
     setProductName(sample.productName);
     setIngredientsInput(sample.ingredients);
     setMarket(sample.market);
     setDomain(sample.domain);
-    handleImageSelected(null);
     setReport(null);
     setError(null);
     setSubmitted(false);
@@ -404,8 +411,10 @@ function AssistantPage() {
                   >
                     <PackageCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <span className="truncate">{sample.productName}</span>
-                    <span className="ml-auto rounded-full border border-hairline px-2 py-0.5 text-[10px] text-muted-foreground">
-                      {getDomainLabel(sample.domain)}
+                    <span
+                      className={`ml-auto shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${sampleReadinessTone[sample.readiness]}`}
+                    >
+                      {sample.readiness}
                     </span>
                   </button>
                 </li>

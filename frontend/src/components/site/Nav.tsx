@@ -6,7 +6,7 @@ import { useState } from "react";
 const NAV_ITEMS = [
   { to: "/assistant", label: "Assistant" },
   { to: "/methodology", label: "Methodology" },
-  { to: "/enterprise", label: "Enterprise" },
+  { to: "/how-ai-works", label: "How AI works" },
 ] as const;
 
 export function Nav() {
@@ -15,14 +15,7 @@ export function Nav() {
     select: (state) => state.location.pathname,
   });
   const isLandingPage = currentPathname === "/";
-  const visibleNavItems = NAV_ITEMS.filter((item) => {
-    if (isLandingPage && item.to === "/assistant") {
-      return false;
-    }
-
-    // Hide self-link to avoid redundant navigation on the current page.
-    return item.to !== currentPathname;
-  });
+  const visibleNavItems = NAV_ITEMS;
 
   return (
     <header className="sticky top-0 z-50 w-full">
@@ -36,8 +29,11 @@ export function Nav() {
             <Link
               key={item.to}
               to={item.to}
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-              activeProps={{ className: "text-foreground" }}
+              className="rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
+              activeProps={{
+                className:
+                  "border border-jade/35 bg-jade/10 text-jade shadow-[0_0_20px_rgba(16,185,129,0.16)]",
+              }}
             >
               {item.label}
             </Link>
@@ -77,7 +73,9 @@ export function Nav() {
                     to={item.to}
                     onClick={() => setOpen(false)}
                     className="rounded-xl px-3 py-3 text-base text-foreground/85 transition-colors hover:bg-surface"
-                    activeProps={{ className: "bg-surface text-foreground" }}
+                    activeProps={{
+                      className: "border border-jade/35 bg-jade/10 text-jade",
+                    }}
                   >
                     {item.label}
                   </Link>

@@ -13,6 +13,7 @@ import { Route as TransparencyRouteImport } from './routes/transparency'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as ScanRouteImport } from './routes/scan'
 import { Route as MethodologyRouteImport } from './routes/methodology'
+import { Route as HowAiWorksRouteImport } from './routes/how-ai-works'
 import { Route as EnterpriseRouteImport } from './routes/enterprise'
 import { Route as AssistantRouteImport } from './routes/assistant'
 import { Route as IndexRouteImport } from './routes/index'
@@ -36,6 +37,11 @@ const ScanRoute = ScanRouteImport.update({
 const MethodologyRoute = MethodologyRouteImport.update({
   id: '/methodology',
   path: '/methodology',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HowAiWorksRoute = HowAiWorksRouteImport.update({
+  id: '/how-ai-works',
+  path: '/how-ai-works',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EnterpriseRoute = EnterpriseRouteImport.update({
@@ -64,6 +70,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/assistant': typeof AssistantRoute
   '/enterprise': typeof EnterpriseRoute
+  '/how-ai-works': typeof HowAiWorksRoute
   '/methodology': typeof MethodologyRoute
   '/scan': typeof ScanRoute
   '/sign-in': typeof SignInRoute
@@ -74,6 +81,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/assistant': typeof AssistantRoute
   '/enterprise': typeof EnterpriseRoute
+  '/how-ai-works': typeof HowAiWorksRoute
   '/methodology': typeof MethodologyRoute
   '/scan': typeof ScanRoute
   '/sign-in': typeof SignInRoute
@@ -85,6 +93,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/assistant': typeof AssistantRoute
   '/enterprise': typeof EnterpriseRoute
+  '/how-ai-works': typeof HowAiWorksRoute
   '/methodology': typeof MethodologyRoute
   '/scan': typeof ScanRoute
   '/sign-in': typeof SignInRoute
@@ -97,6 +106,7 @@ export interface FileRouteTypes {
     | '/'
     | '/assistant'
     | '/enterprise'
+    | '/how-ai-works'
     | '/methodology'
     | '/scan'
     | '/sign-in'
@@ -107,6 +117,7 @@ export interface FileRouteTypes {
     | '/'
     | '/assistant'
     | '/enterprise'
+    | '/how-ai-works'
     | '/methodology'
     | '/scan'
     | '/sign-in'
@@ -117,6 +128,7 @@ export interface FileRouteTypes {
     | '/'
     | '/assistant'
     | '/enterprise'
+    | '/how-ai-works'
     | '/methodology'
     | '/scan'
     | '/sign-in'
@@ -128,6 +140,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AssistantRoute: typeof AssistantRoute
   EnterpriseRoute: typeof EnterpriseRoute
+  HowAiWorksRoute: typeof HowAiWorksRoute
   MethodologyRoute: typeof MethodologyRoute
   ScanRoute: typeof ScanRoute
   SignInRoute: typeof SignInRoute
@@ -165,6 +178,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MethodologyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/how-ai-works': {
+      id: '/how-ai-works'
+      path: '/how-ai-works'
+      fullPath: '/how-ai-works'
+      preLoaderRoute: typeof HowAiWorksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/enterprise': {
       id: '/enterprise'
       path: '/enterprise'
@@ -200,6 +220,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AssistantRoute: AssistantRoute,
   EnterpriseRoute: EnterpriseRoute,
+  HowAiWorksRoute: HowAiWorksRoute,
   MethodologyRoute: MethodologyRoute,
   ScanRoute: ScanRoute,
   SignInRoute: SignInRoute,

@@ -661,10 +661,10 @@ function FinalCTA() {
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </Link>
             <Link
-              to="/enterprise"
+              to="/methodology"
               className="inline-flex items-center gap-2 rounded-full border border-hairline bg-surface/60 px-6 py-3.5 text-sm backdrop-blur transition-colors hover:bg-surface"
             >
-              Talk to our team
+              Read the method
             </Link>
           </div>
         </div>
